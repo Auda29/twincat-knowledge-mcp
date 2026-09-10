@@ -75,6 +75,15 @@ with unchanged database SHA-256 after reads. Both wheel and sdist cases passed o
 CPython 3.13.12. This is a software installation test with original synthetic data,
 not a real vendor-corpus or platform-wide acceptance claim.
 
-Independent index review and native Windows/Linux CI for this component remain
-required. The upstream artifact-upload quota issue is separate and has not been
-bypassed. No merge or complete-product acceptance is claimed.
+Independent review of `8c3ae34` passed with two low-severity follow-ups; the
+installation-test-only `4fd9fae` addendum was inspected separately. The coordinator
+then reproduced both follow-ups (2 failing tests): empty queries on a closed
+reader bypassed the lifecycle guard, and duplicate topic IDs raised a raw SQLite
+exception. Both are corrected: the closed guard applies before the empty-query
+shortcut, and insert constraint violations become `TopicIndexValidationError`.
+The focused suite now passes 20 tests and the full suite passes **127 tests on
+CPython 3.12.10 and 3.13.12**, including installed wheel and sdist index roundtrips.
+Ruff and mypy passed. A final targeted independent review of this small delta and
+native Windows/Linux CI remain required. The upstream artifact-upload quota issue
+is separate and has not been bypassed. No merge or complete-product acceptance
+is claimed.

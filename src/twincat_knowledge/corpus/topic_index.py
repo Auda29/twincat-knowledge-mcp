@@ -180,16 +180,21 @@ def _write_database(
             body = _search_text(topic)
             _validate_text_size(payload, "topic JSON", max_topic_json_bytes)
             _validate_text_size(body, "topic search text", max_search_text_bytes)
-            connection.execute(
-                "INSERT INTO topics VALUES (?, ?, ?, ?, ?)",
-                (
-                    topic.id,
-                    topic.language,
-                    topic.library,
-                    topic.source.snapshot_id,
-                    payload,
-                ),
-            )
+            try:
+                connection.execute(
+                    "INSERT INTO topics VALUES (?, ?, ?, ?, ?)",
+                    (
+                        topic.id,
+                        topic.language,
+                        topic.library,
+                        topic.source.snapshot_id,
+                        payload,
+                    ),
+                )
+            except sqlite3.IntegrityError as exc:
+                raise TopicIndexValidationError(
+                    "duplicate or invalid topic record"
+                ) from exc
             connection.execute(
                 "INSERT INTO search_text VALUES (?, ?)", (topic.id, body)
             )
@@ -346,13 +351,14 @@ class TopicIndex:
                     raise TopicIndexBoundsError(f"{column} is empty or too large")
                 filters.append(f"t.{column} = ?")
                 values.append(value)
+        connection = self._connection_or_raise()
         if not query.strip():
             return ()
         literal = '"' + query.replace('"', '""') + '"'
         where = " AND ".join(filters)
         if where:
             where = " AND " + where
-        rows = self._connection_or_raise().execute(
+        rows = connection.execute(
             "SELECT t.payload FROM search_text "
             "JOIN topics AS t ON t.id = search_text.id "
             "WHERE search_text MATCH ?"

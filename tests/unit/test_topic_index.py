@@ -302,3 +302,21 @@ def test_build_does_not_expose_partial_output_or_replace_concurrent_file(tmp_pat
         create_topic_index(path, topics())
     assert path.read_bytes() == b"operator-created concurrent file"
     assert sorted(p.name for p in tmp_path.iterdir()) == ["output.sqlite"]
+
+
+def test_empty_search_rejects_closed_reader(tmp_path):
+    from twincat_knowledge.corpus.topic_index import TopicIndexError
+
+    path = tmp_path / "closed.sqlite"
+    create_topic_index(path, [_topic()])
+    with TopicIndex(path) as index:
+        assert index.search("  ") == ()
+    with pytest.raises(TopicIndexError, match="closed"):
+        index.search("  ")
+
+
+def test_duplicate_ids_raise_controlled_validation_error(tmp_path):
+    path = tmp_path / "duplicates.sqlite"
+    with pytest.raises(TopicIndexValidationError, match="duplicate"):
+        create_topic_index(path, [_topic(), _topic()])
+    assert list(tmp_path.iterdir()) == []
