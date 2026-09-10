@@ -96,3 +96,27 @@ Each focused regression failed first, then passed. Final focused XML suite:
 3.12.13 (8.32s), including installed wheel/sdist CLI tests. Ruff and mypy passed.
 This integrated XML change still requires independent review at its final SHA;
 these results do not claim real vendor-corpus acceptance.
+
+
+## Independent XML/CLI review follow-up
+
+Review at df8588d requested changes for head/title descendants selected as article
+roots, fallback head images/help links, and an uncontrolled doctor path-expansion
+error. The XML examples in that report were static findings; the coordinator
+reproduced them as executable RED regressions before applying fixes.
+
+- A shared `content_only` traversal policy now prunes head/title/meta ancestors
+  before selecting article/body roots and before collecting article assets and
+  Help IDs. Metadata/title extraction deliberately uses its separate safe walk.
+- A further RED regression covered metadata subtrees nested inside paragraphs
+  and tables. Inline rendering, section candidates and table-row traversal now
+  use the same exclusion semantics while preserving safe tails.
+- Actual `doctor --json` with an unknown-user `~user/corpus` config reproduced
+  `RuntimeError` from `Path.expanduser()`. Corpus path resolution/inspection now
+  returns an error check without printing private values or a traceback. The
+  regression also accepts the Windows behavior of resolving a missing sibling
+  home, which is still reported not ready, never validated.
+
+Focused XML suite: 8 passed. Config suite: 10 passed. Final full suite: 81 passed
+on CPython 3.12.10 (4.40s) and CPython 3.13.12 (4.30s); Ruff/mypy passed.
+Independent follow-up and native CI are still separate pending gates.

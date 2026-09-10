@@ -248,10 +248,10 @@ def _is_active(element: Element) -> bool:
 def _safe_content_root(root: Element) -> Element:
     """Select article content without treating head metadata as article text."""
 
-    for element in _safe_elements(root):
+    for element in _safe_elements(root, content_only=True):
         if _local_name(element.tag) == "article":
             return element
-    for element in _safe_elements(root):
+    for element in _safe_elements(root, content_only=True):
         if _local_name(element.tag) == "body":
             return element
     return root
@@ -264,7 +264,7 @@ def _render_inline(element: Element, *, br_newline: bool = True) -> str:
     if element.text is not None:
         parts.append(element.text)
     for child in list(element):
-        if _is_active(child):
+        if _is_active(child) or _local_name(child.tag) in {"head", "title", "meta"}:
             if child.tail is not None:
                 parts.append(child.tail)
             continue
@@ -299,12 +299,18 @@ def _render_inline(element: Element, *, br_newline: bool = True) -> str:
     return "".join(parts)
 
 
-def _safe_elements(root: Element) -> Iterator[Element]:
-    if _is_active(root):
+def _safe_elements(
+    root: Element,
+    *,
+    content_only: bool = False,
+) -> Iterator[Element]:
+    if _is_active(root) or (
+        content_only and _local_name(root.tag) in {"head", "title", "meta"}
+    ):
         return
     yield root
     for child in list(root):
-        yield from _safe_elements(child)
+        yield from _safe_elements(child, content_only=content_only)
 
 
 def _element_depth_limited(data: bytes, maximum: int) -> Element:
@@ -444,7 +450,7 @@ def _metadata_value(metadata: tuple[InfoSysMetadata, ...], name: str) -> str | N
 
 def _table_rows(table: Element) -> tuple[tuple[str, ...], ...]:
     rows: list[tuple[str, ...]] = []
-    for row in _safe_elements(table):
+    for row in _safe_elements(table, content_only=True):
         if _local_name(row.tag) != "tr":
             continue
         cells = tuple(
@@ -458,7 +464,7 @@ def _table_rows(table: Element) -> tuple[tuple[str, ...], ...]:
 
 def _sections(root: Element) -> tuple[InfoSysSection, ...]:
     parent: dict[int, Element] = {}
-    safe_nodes = tuple(_safe_elements(root))
+    safe_nodes = tuple(_safe_elements(root, content_only=True))
     safe_ids = {id(node) for node in safe_nodes}
     for node in safe_nodes:
         for child in list(node):
@@ -580,7 +586,7 @@ def _sections(root: Element) -> tuple[InfoSysSection, ...]:
 
 def _help_ids(root: Element) -> tuple[str, ...]:
     result: list[str] = []
-    for element in _safe_elements(root):
+    for element in _safe_elements(root, content_only=True):
         href = element.attrib.get("href")
         if href is None:
             continue
@@ -599,7 +605,7 @@ def _help_ids(root: Element) -> tuple[str, ...]:
 
 def _image_refs(root: Element) -> tuple[str, ...]:
     result: list[str] = []
-    for element in _safe_elements(root):
+    for element in _safe_elements(root, content_only=True):
         tag = _local_name(element.tag)
         if tag != "img" or not element.attrib.get("src"):
             continue

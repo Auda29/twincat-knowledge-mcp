@@ -141,19 +141,27 @@ def diagnose_config(path: str | os.PathLike[str]) -> dict[str, Any]:
             "detail": "Corpus is not configured or missing",
         }
     else:
-        configured_corpus = Path(corpus_value).expanduser()
-        if not configured_corpus.is_absolute():
-            configured_corpus = config_path.absolute().parent / configured_corpus
-        if configured_corpus.is_dir():
+        try:
+            configured_corpus = Path(corpus_value).expanduser()
+            if not configured_corpus.is_absolute():
+                configured_corpus = config_path.absolute().parent / configured_corpus
+            exists = configured_corpus.is_dir()
+        except (RuntimeError, OSError, ValueError):
             corpus_check = {
-                "status": "unverified",
-                "detail": "Corpus directory exists but has not been validated",
+                "status": "error",
+                "detail": "Configured corpus path could not be resolved or inspected",
             }
         else:
-            corpus_check = {
-                "status": "missing",
-                "detail": "Configured corpus directory is missing",
-            }
+            if exists:
+                corpus_check = {
+                    "status": "unverified",
+                    "detail": "Corpus directory exists but has not been validated",
+                }
+            else:
+                corpus_check = {
+                    "status": "missing",
+                    "detail": "Configured corpus directory is missing",
+                }
     checks: dict[str, dict[str, str]] = {
         "python": {
             "status": "ok" if sys.version_info >= (3, 12) else "error",

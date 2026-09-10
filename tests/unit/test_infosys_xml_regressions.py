@@ -124,3 +124,39 @@ def test_document_without_body_does_not_emit_head_as_article_text():
     topic = _read("<html><head><title>Safe title</title><p>HEAD-ONLY</p></head></html>")
     assert topic.title == "Safe title"
     assert topic.sections == ()
+
+
+def test_article_selection_never_detaches_head_or_title_descendants():
+    for container in ("head", "title"):
+        for body in ("", "<body><article><p>BODY</p></article></body>"):
+            topic = _read(
+                f"<html><{container}><article>HEAD-ARTICLE</article>"
+                f"</{container}>{body}</html>"
+            )
+            expected = ["BODY"] if body else []
+            assert [section.content for section in topic.sections] == expected
+
+
+def test_head_only_fallback_excludes_head_assets_and_help_links():
+    topic = _read(
+        '<html><head><a href="ms-xhelp:///?Id=HEAD">head link</a>'
+        '<img src="head.png"/></head>'
+        '<a href="ms-xhelp:///?Id=VISIBLE">visible link</a>'
+        '<img src="visible.png"/></html>'
+    )
+    assert topic.help_ids == ("VISIBLE",)
+    assert topic.image_refs == ("visible.png",)
+    assert [section.content for section in topic.sections] == ["visible link"]
+
+
+def test_nested_metadata_subtrees_are_excluded_from_structured_text():
+    topic = _read(
+        "<article><p>before<head><p>HIDDEN</p></head>tail"
+        "<title>HIDDEN-TITLE</title>end</p>"
+        "<table><head><tr><td>HIDDEN-ROW</td></tr></head>"
+        "<tr><td>visible</td></tr></table></article>"
+    )
+    assert [(section.kind, section.content) for section in topic.sections] == [
+        ("paragraph", "beforetailend"),
+        ("table", (("visible",),)),
+    ]
