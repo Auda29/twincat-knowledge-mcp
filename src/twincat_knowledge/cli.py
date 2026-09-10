@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
+from collections import Counter
 from collections.abc import Sequence
+from pathlib import Path
+from typing import Literal
 
 from . import __version__
 from .config import (
@@ -39,6 +43,15 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument(
         "--json", action="store_true", help="emit a machine-readable report"
     )
+    inspect_parser = commands.add_parser(
+        "inspect-infosys", help="read selected InfoSys XHTML and emit metadata only"
+    )
+    inspect_parser.add_argument("--source", required=True, type=Path)
+    inspect_parser.add_argument("--library", required=True, action="append")
+    inspect_parser.add_argument("--language", required=True, choices=("de", "en"))
+    inspect_parser.add_argument(
+        "--title", help="optional exact title, case-insensitive"
+    )
     return parser
 
 
@@ -71,6 +84,54 @@ def _run_doctor(config_path: str, as_json: bool) -> int:
     return 0 if report["status"] == "ok" else 1
 
 
+def _run_inspect(
+    source: Path, libraries: list[str], language: Literal["en", "de"], title: str | None
+) -> int:
+    from .ingest.infosys import InfoSysError, read_infosys
+
+    try:
+        topics = read_infosys(source, libraries=libraries, language=language)
+        if title is not None:
+            topics = tuple(
+                topic for topic in topics if topic.title.casefold() == title.casefold()
+            )
+    except (InfoSysError, OSError, ValueError):
+        print(
+            "InfoSys inspection failed: source unreadable, unsupported or over limits",
+            file=sys.stderr,
+        )
+        return 1
+    report = {
+        "schema_version": "infosys-inspection-1",
+        "status": "ok" if topics else "not_found",
+        "libraries": libraries,
+        "language": language,
+        "total": len(topics),
+        "truncated": len(topics) > 20,
+        "topics": [
+            {
+                "title": topic.title,
+                "library": topic.library,
+                "language": topic.language,
+                "locator": topic.source.locator,
+                "content_hash": topic.source.content_hash,
+                "section_counts": dict(
+                    Counter(section.kind for section in topic.sections)
+                ),
+                "help_link_count": len(topic.help_ids),
+            }
+            for topic in topics[:20]
+        ],
+        "limitations": [
+            "Read-only inspection, not a validated corpus import.",
+            "No active-package manifest verification or Help-ID resolution.",
+            "Metadata does not prove software-build applicability.",
+        ],
+    }
+    print(json.dumps(report, ensure_ascii=True))
+    return 0 if topics else 2
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -78,5 +139,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_init(args.config)
     if args.command == "doctor":
         return _run_doctor(args.config, args.json)
+    if args.command == "inspect-infosys":
+        return _run_inspect(args.source, args.library, args.language, args.title)
     parser.print_help()
     return 0

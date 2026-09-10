@@ -150,6 +150,41 @@ def test_wheel_installs_without_source_checkout(
     assert version.stdout.strip() == "twincat-knowledge 0.1.0"
     assert version.stderr == ""
 
+    # Exercise the new reader through the installed console entry point, not checkout.
+    from zipfile import ZipFile
+
+    source = operator_dir / "synthetic.mshc"
+    with ZipFile(source, "w") as archive:
+        archive.writestr(
+            "sample/1033/1.html",
+            "<html><head><title>Synthetic</title></head><body><article>"
+            "<pre>A<br/> B</pre></article></body></html>",
+        )
+    inspection = _run(
+        [
+            *_console_command(python, console_script),
+            "inspect-infosys",
+            "--source",
+            source,
+            "--library",
+            "sample",
+            "--language",
+            "en",
+            "--title",
+            "Synthetic",
+        ],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert inspection.returncode == 0, inspection.stderr
+    inspected = json.loads(inspection.stdout)
+    assert inspected["total"] == 1
+    assert inspected["topics"][0]["section_counts"]["code"] == 1
+    assert inspected["topics"][0]["locator"] == "sample/1033/1.html"
+    assert str(operator_dir) not in inspection.stdout
+    assert inspection.stderr == ""
+
     config_path = operator_dir / "config.toml"
     init = _run(
         [*_console_command(python, console_script), "init", "--config", config_path],

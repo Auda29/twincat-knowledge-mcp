@@ -57,3 +57,20 @@ jobs:
         run: uv run --frozen python -m pytest -q tests
       - name: Build wheel and source archive
         run: uv build
+      - name: Hash software artifacts
+        run: >-
+          uv run --frozen python -c "import hashlib,pathlib;
+          d=pathlib.Path('dist');
+          files=sorted([*d.glob('*.whl'),*d.glob('*.tar.gz')]);
+          assert len(files)==2;
+          (d/'SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.name+'\n' for p in files),encoding='utf-8')"
+      - name: Upload private CI build (not a release)
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: software-${{ matrix.os }}-py${{ matrix.python }}-${{ github.sha }}
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
