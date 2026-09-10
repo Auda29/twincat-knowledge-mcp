@@ -36,7 +36,9 @@ Den vollständigen Plan `docs/PLAN.md` in `Auda29/-twincat-knowledge-mcp` inkrem
 - Scope: Repository `Auda29/-twincat-knowledge-mcp`, zugehörige isolierte Worktrees und Testumgebungen.
 - Repository bleibt privat. Keine öffentliche Registry oder öffentliche Releases.
 - Kein Projektfokus als Voraussetzung, kein ADS-/SPS-Schreibzugriff und keine Engineering-Aktionen.
+- Bring your own documentation: Ausgeliefert wird nur MCP-Software; Nutzer beschaffen und stellen InfoSys-/ESI-Dokumentation selbst bereit. Keine Weiterverteilung von Beckhoff-Dokumentation oder daraus erzeugten Wissenspaketen/Suchindizes durch das Projekt.
 - Keine Beckhoff-Volltexte, privaten Wissenspakete oder Secrets in Git/Software-Releases.
+- Nutzungsbedingungen für konkrete lokale Verarbeitung und mögliche Auszugübertragung an externe Modellanbieter getrennt prüfen; keine pauschale Forderung nach schriftlicher Herstellerfreigabe für jede lokale Nutzung. Eine reale, vom Betreiber bereitgestellte und für den Testzweck nutzbare Stichprobe bleibt für Import-/Fachabnahme erforderlich.
 - Keine Sicherheitsgrenze abschwächen, Tests entfernen oder Abnahmeziele verkleinern, um grüne Ergebnisse zu erhalten.
 - Implementierungsarbeit auf `swarm/*`-Branches mit reviewbaren PRs; keine automatische Zusammenführung nach `main` oder Release-Veröffentlichung ohne gesonderte Freigabe. Lokale Release-Artefakte dürfen gebaut und getestet werden.
 - Keine Änderungen an anderen Hermes-Profilen. Eine profilweite Modellumstellung betrifft auch weitere Delegationen und ist entsprechend sichtbar zu machen.

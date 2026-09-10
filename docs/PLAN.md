@@ -82,7 +82,11 @@ Beckhoff dokumentiert das TwinCAT 3 Information System als lokal installierbaren
 
 Daraus folgt **nicht**, dass sämtliche Beckhoff-Hardwareinformationen, alle Produktfamilien oder jede historische Bibliotheksversion darin vollständig enthalten sind. Der tatsächliche Umfang muss inventarisiert werden.
 
-**Offen und explizit zu klären:** Recht auf Extraktion, Indexierung, Embeddings, teaminterne Bereitstellung und Weitergabe. Ein offizieller Download ist keine pauschale Weiterveröffentlichungserlaubnis. Ein interner strukturierter Export wäre vorzuziehen, ist bisher aber nicht bestätigt. Dateiformat, Zugänglichkeit und Extraktionsqualität des tatsächlichen Offline-Pakets sind ebenfalls noch nicht praktisch geprüft.
+**Festgelegtes Vertriebsmodell: Bring your own documentation.** Verteilt wird nur die MCP-Software. Jeder Nutzer beschafft und stellt seinen eigenen InfoSys-/ESI-Bestand bereit. Beckhoff-Dokumentation und daraus erzeugte Wissenspakete oder Suchindizes werden nicht mit der Software ausgeliefert oder vom Projekt weiterverteilt. Import und Indexierung erfolgen in der vom Betreiber kontrollierten Umgebung; kein automatischer Dokumentationsdownload bei Installation oder Serverstart.
+
+**Für den konkreten Betrieb zu prüfen:** Die geltenden Bedingungen für lokale Extraktion/Indexierung, gegebenenfalls Embeddings, teaminternen Zugriff und die Übertragung von Auszügen über den MCP-Host an einen externen Modellanbieter. Eine gesonderte schriftliche Herstellerfreigabe ist nicht pauschal für jede lokale Nutzung vorausgesetzt; maßgeblich sind die tatsächlich geltenden Bedingungen. Die Vertriebsentscheidung ist kein Nachweis, dass sämtliche Verarbeitungsarten zulässig sind. Eine Weiterverteilungserlaubnis für Beckhoff-Dokumentation ist keine Voraussetzung des Softwarevertriebs, weil diese Weiterverteilung nicht vorgesehen ist.
+
+Für reale Import- und Coverage-Tests wird weiterhin eine vom Betreiber bereitgestellte, für den jeweiligen Testzweck nutzbare Stichprobe benötigt; sie bleibt außerhalb von Git und Software-Releases. Ein interner strukturierter Export wäre vorzuziehen, ist bisher aber nicht bestätigt. Dateiformat, Zugänglichkeit und Extraktionsqualität des tatsächlichen Offline-Pakets sind ebenfalls noch nicht praktisch geprüft.
 
 ## 3. Architektur
 
@@ -761,7 +765,7 @@ Gleiches Modell, Aufgaben, Budget und Bewertungsraster; variable Läufe wiederho
 | Thema | Festgelegter Umgang |
 |---|---|
 | GitHub-Zugang | Vom Nutzer angelegtes privates Repository ist erreichbar und beschreibbar; Sichtbarkeit vor späteren Veröffentlichungen erneut prüfen |
-| InfoSys-Extraktion/Nutzungsrechte | Vor großem Import und vor Weitergabe klären; technischer Offline-Zugriff ersetzt keine Freigabe |
+| InfoSys-Extraktion/Nutzungsrechte | Nutzer stellt Dokumentation selbst bereit; keine Weiterverteilung durch das Projekt. Bedingungen für konkrete Verarbeitung und Modellübertragung prüfen; reale Teststichprobe bleibt erforderlich |
 | Offline-Paketformat/Windows-Abhängigkeit | Reale Stichprobe in Phase 0; Exporter nötigenfalls Windows-only, Server unabhängig |
 | Globale Beckhoff-Abdeckung | Quelleninventar und Coverage pro Produktfamilie; TwinCAT-Doku nicht mit gesamtem Hardwarebestand gleichsetzen |
 | Dokumentation versus tatsächliche Bibliotheks-API | Provenienz markieren; keine verifizierte installierte Signatur vortäuschen |
