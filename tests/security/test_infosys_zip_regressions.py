@@ -96,3 +96,32 @@ def test_reader_requires_explicit_source_and_snapshot_identity():
         for kwargs in ({}, {"source_id": "synthetic"}, {"snapshot_id": "fixture-1"}):
             with pytest.raises(TypeError):
                 factory(archive_bytes(), **kwargs)
+
+
+def test_invalid_utf8_directory_name_is_a_controlled_archive_error():
+    data = bytearray(archive_bytes())
+    cd = data.index(b"PK\x01\x02")
+    flags = struct.unpack_from("<H", data, cd + 8)[0]
+    struct.pack_into("<H", data, cd + 8, flags | 0x800)
+    data[cd + 46] = 0xFF
+    with pytest.raises(InfoSysArchiveError):
+        read_infosys(bytes(data), source_id="synthetic", snapshot_id="fixture-1")
+
+
+@pytest.mark.parametrize("replacement", [b"\x00", b"\\"])
+def test_raw_unsafe_names_are_rejected_before_zipinfo_sanitizes(
+    monkeypatch, replacement
+):
+    data = bytearray(archive_bytes())
+    cd = data.index(b"PK\x01\x02")
+    name_size = struct.unpack_from("<H", data, cd + 28)[0]
+    index = name_size - 1 if replacement == b"\x00" else 3
+    data[30 + index] = replacement[0]
+    data[cd + 46 + index] = replacement[0]
+
+    def forbidden_zipinfo(*args, **kwargs):
+        pytest.fail("Raw unsafe name reached ZipInfo sanitization")
+
+    monkeypatch.setattr("zipfile.ZipInfo", forbidden_zipinfo)
+    with pytest.raises(UnsafeArchiveError):
+        read_infosys(bytes(data), source_id="synthetic", snapshot_id="fixture-1")

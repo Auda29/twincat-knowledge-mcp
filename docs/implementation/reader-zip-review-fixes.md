@@ -81,3 +81,24 @@ then runs the same bounded directory walk. No OS/version guess, parser limit
 removal or test exclusion was used. After the fix: the same 9 archive tests pass
 on 3.12.10 and 3.13.12; full suite 74 passed on 3.12.10 (4.41s). Ruff and mypy
 passed. Native Windows rerun and review of this follow-up remain required.
+
+
+## Second independent ZIP review: raw names and UTF-8
+
+The review at 34cb581 confirmed the four requested fixes on the newer Python
+patch versions, but found two additional boundary defects. Both were reproduced
+before correction:
+
+- Invalid UTF-8 with general-purpose flag bit 11 leaked `UnicodeDecodeError`:
+  one RED failure, then 10 archive tests passed after normalizing `UnicodeError`
+  to `InfoSysArchiveError` at the outer archive context boundary.
+- Raw NUL/backslash filenames reached `ZipInfo`, which truncates NULs and
+  normalizes backslashes on Windows. Two new tests failed at a pre-sanitization
+  allocation sentinel. Preflight now reads one bounded raw filename at a time,
+  decodes it under the ZIP flag and validates its original spelling before any
+  `ZipInfo` construction. Extra/comment fields remain seek-skipped and bounds
+  remain enforced. Afterward all 12 ZIP regression tests passed.
+
+Final local full suite: 77 passed on CPython 3.13.12 (4.26s) and CPython 3.12.10
+(4.49s), including installed artifacts. Ruff and mypy passed. This supersedes
+neither native CI nor the required independent follow-up review.

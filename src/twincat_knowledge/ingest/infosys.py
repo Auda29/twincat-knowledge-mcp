@@ -701,7 +701,7 @@ def _validate_archive_layout(
     if start_dir < 0 or size_cd < 0 or start_dir + size_cd > source_size:
         raise BadZipFile("central directory is outside the source archive")
 
-    # Walk fixed-size headers without materializing names or ZipInfo objects.
+    # Walk fixed headers and one bounded filename at a time, without ZipInfo.
     # Do not trust the EOCD count: a forged small count must not bypass the cap.
     handle.seek(start_dir)
     consumed = 0
@@ -714,11 +714,18 @@ def _validate_archive_layout(
         header = handle.read(46)
         if len(header) != 46 or header[:4] != b"PK\x01\x02":
             raise BadZipFile("invalid central directory header")
-        variable_size = sum(struct.unpack_from("<HHH", header, 28))
-        consumed += 46 + variable_size
+        name_size, extra_size, comment_size = struct.unpack_from("<HHH", header, 28)
+        consumed += 46 + name_size + extra_size + comment_size
         if consumed > size_cd:
             raise BadZipFile("central directory record exceeds its declared boundary")
-        handle.seek(variable_size, 1)
+        raw_name = handle.read(name_size)
+        if len(raw_name) != name_size:
+            raise BadZipFile("truncated central directory filename")
+        flags = struct.unpack_from("<H", header, 8)[0]
+        name = raw_name.decode("utf-8" if flags & 0x800 else "cp437")
+        # Validate before ZipInfo truncates NULs or normalizes Windows slashes.
+        _safe_entry_name(name, is_directory=name.endswith("/"))
+        handle.seek(extra_size + comment_size, 1)
         count += 1
 
 
@@ -797,7 +804,7 @@ class InfoSysReader:
                 yield archive
         except InfoSysError:
             raise
-        except (BadZipFile, OSError, RuntimeError, TypeError) as exc:
+        except (BadZipFile, OSError, RuntimeError, TypeError, UnicodeError) as exc:
             raise InfoSysArchiveError("source is not a valid ZIP archive") from exc
         finally:
             if "handle" in locals():
