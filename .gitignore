@@ -15,4 +15,6 @@ build/
 .env
 *.local.toml
 corpus/
+# The source package is code, not an operator corpus.
+!src/twincat_knowledge/corpus/
 packages/

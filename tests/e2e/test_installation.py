@@ -55,7 +55,12 @@ def _run(
         pytest.fail(f"subprocess timed out after {timeout:g}s: {args}: {exc}")
 
 
-def test_wheel_installs_without_source_checkout(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "build_flags", [("--wheel",), ()], ids=["wheel", "sdist-wheel"]
+)
+def test_wheel_installs_without_source_checkout(
+    tmp_path: Path, build_flags: tuple[str, ...]
+) -> None:
     uv = shutil.which("uv")
     if uv is None:
         pytest.fail("uv is required for the wheel installation proof")
@@ -70,7 +75,7 @@ def test_wheel_installs_without_source_checkout(tmp_path: Path) -> None:
 
     env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
     build = _run(
-        [uv, "build", "--wheel", "--out-dir", dist],
+        [uv, "build", *build_flags, "--out-dir", dist],
         cwd=ROOT,
         env=env,
         timeout=180,
@@ -97,6 +102,24 @@ def test_wheel_installs_without_source_checkout(tmp_path: Path) -> None:
     )
     assert install.returncode == 0, install.stdout + install.stderr
     assert python.is_file()
+
+    model_import = _run(
+        [
+            python,
+            "-I",
+            "-c",
+            "from twincat_knowledge.corpus import CorpusManifest; "
+            "from twincat_knowledge.domain import SourceReference; "
+            "r = SourceReference(source_id='synthetic', snapshot_id='synthetic', "
+            "language='en', canonical_url=None, locator='topic.html', "
+            "content_hash='a'*64); "
+            "assert SourceReference.model_validate_json(r.model_dump_json()) == r",
+        ],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert model_import.returncode == 0, model_import.stdout + model_import.stderr
 
     console_script = _venv_console_script(venv, "twincat-knowledge")
     version = _run(
