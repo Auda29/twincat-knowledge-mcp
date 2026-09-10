@@ -77,8 +77,11 @@ def test_reader_enforces_entry_count_and_declared_aggregate_limits() -> None:
 
     with pytest.raises(InfoSysLimitError):
         InfoSysReader(
-            _archive([("lib/1033/x.bin", b"12345", None)]),
-            limits=InfoSysLimits(max_entry_bytes=10, max_aggregate_bytes=4),
+            _archive([("lib/1033/x.html", b"12345", None)]),
+            limits=InfoSysLimits(
+                max_selected_entry_bytes=10,
+                max_selected_aggregate_bytes=4,
+            ),
         ).read()
 
 
@@ -111,4 +114,40 @@ def test_reader_rejects_xxe_and_xml_depth_overflow() -> None:
         InfoSysReader(
             _archive([("lib/1033/x.html", nested, None)]),
             limits=InfoSysLimits(max_xml_depth=4),
+        ).read()
+
+
+def test_reader_extracts_article_content_and_removes_active_content_with_tails() -> (
+    None
+):
+    html = """<html xmlns="http://www.w3.org/1999/xhtml"><head>
+<title>Safe title</title><p>head content must not become an article section</p>
+</head><body><article>
+<p>keep<script>drop</script>tail<style>also drop</style>end</p>
+<ul><li>first</li><li>second</li></ul>
+<table><tr><td><p>left</p><p>right</p><script>drop</script>tail</td></tr></table>
+<aside role="alert">Important <script>drop</script>notice</aside>
+<img src="javascript:alert(1)" />
+</article></body></html>"""
+
+    topic = InfoSysReader(_archive([("lib/1033/article.html", html, None)])).read()[0]
+
+    assert [(section.kind, section.content) for section in topic.sections] == [
+        ("paragraph", "keeptailend"),
+        ("paragraph", "first\nsecond"),
+        ("table", (("left\nrighttail",),)),
+        ("warning", "Important notice"),
+    ]
+    assert topic.image_refs == ()
+
+
+def test_reader_enforces_central_directory_bound_before_zipfile_reads_it() -> None:
+    entries = [
+        (f"lib/1033/topic-{index}.html", b"<p>x</p>", None) for index in range(4)
+    ]
+
+    with pytest.raises(InfoSysLimitError):
+        InfoSysReader(
+            _archive(entries),
+            limits=InfoSysLimits(max_central_directory_bytes=64),
         ).read()

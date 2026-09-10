@@ -132,3 +132,31 @@ def test_reader_enforces_actual_entry_and_aggregate_bytes() -> None:
 
     with pytest.raises(InfoSysLimitError):
         reader.read()
+
+
+def test_path_source_uses_file_backed_archive_and_reads_only_selected_entries(
+    tmp_path,
+) -> None:
+    html = (
+        "<html xmlns='http://www.w3.org/1999/xhtml'><body><p>selected</p></body></html>"
+    )
+    payload = _archive(
+        {
+            "lib/1033/selected.html": html,
+            "assets/unrelated.bin": b"x" * (2 * 1024 * 1024),
+        }
+    ).getvalue()
+    archive_path = tmp_path / "large.mshc"
+    with archive_path.open("wb") as handle:
+        handle.seek(70 * 1024 * 1024)
+        handle.write(payload)
+
+    topics = InfoSysReader(
+        archive_path,
+        limits=InfoSysLimits(
+            max_memory_source_bytes=128,
+            max_selected_entry_bytes=1024,
+        ),
+    ).read(libraries=["lib"], language="en")
+
+    assert [topic.source.locator for topic in topics] == ["lib/1033/selected.html"]

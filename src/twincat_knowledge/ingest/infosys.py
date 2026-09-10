@@ -9,7 +9,9 @@ from __future__ import annotations
 import hashlib
 import re
 import stat
-from collections.abc import Iterable
+import zipfile
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -53,22 +55,48 @@ class UnsafeArchiveError(InfoSysArchiveError):
 class InfoSysLimits:
     """Resource limits applied before and during every archive read."""
 
-    max_source_bytes: int = 64 * 1024 * 1024
-    max_archive_entries: int = 10_000
-    max_entry_bytes: int = 8 * 1024 * 1024
-    max_aggregate_bytes: int = 256 * 1024 * 1024
+    # This is a file-size limit, not an allocation size.  Installed InfoSys
+    # packages can be several GiB, while only selected XHTML entries are read.
+    max_archive_bytes: int = 16 * 1024**3
+    max_memory_source_bytes: int = 64 * 1024 * 1024
+    max_archive_entries: int = 100_000
+    max_central_directory_bytes: int = 64 * 1024 * 1024
+    max_selected_entry_bytes: int = 8 * 1024 * 1024
+    max_selected_aggregate_bytes: int = 256 * 1024 * 1024
     max_xml_depth: int = 128
+    # Compatibility aliases for the first reader slice.  They remain bounded
+    # memory/read limits, never path archive limits.
+    max_source_bytes: int | None = None
+    max_entry_bytes: int | None = None
+    max_aggregate_bytes: int | None = None
 
     def __post_init__(self) -> None:
         for name in (
+            "max_archive_bytes",
+            "max_memory_source_bytes",
             "max_source_bytes",
             "max_archive_entries",
+            "max_central_directory_bytes",
+            "max_selected_entry_bytes",
+            "max_selected_aggregate_bytes",
             "max_entry_bytes",
             "max_aggregate_bytes",
             "max_xml_depth",
         ):
-            if getattr(self, name) <= 0:
+            value = getattr(self, name)
+            if value is not None and value <= 0:
                 raise ValueError(f"{name} must be positive")
+
+        if self.max_source_bytes is not None:
+            object.__setattr__(self, "max_memory_source_bytes", self.max_source_bytes)
+        if self.max_entry_bytes is not None:
+            object.__setattr__(self, "max_selected_entry_bytes", self.max_entry_bytes)
+        if self.max_aggregate_bytes is not None:
+            object.__setattr__(
+                self,
+                "max_selected_aggregate_bytes",
+                self.max_aggregate_bytes,
+            )
 
 
 class InfoSysMetadata(StrictModel):
@@ -198,20 +226,83 @@ def _is_code(element: Element) -> bool:
     return tag == "pre" or tag == "code" or "code" in tokens
 
 
+def _is_active(element: Element) -> bool:
+    """Identify content that must not be rendered or retained as an asset."""
+
+    tag = _local_name(element.tag)
+    return tag in {
+        "applet",
+        "base",
+        "embed",
+        "form",
+        "iframe",
+        "link",
+        "object",
+        "script",
+        "style",
+    }
+
+
+def _safe_content_root(root: Element) -> Element:
+    """Select article content without treating head metadata as article text."""
+
+    for element in root.iter():
+        if _local_name(element.tag) == "article":
+            return element
+    for element in root.iter():
+        if _local_name(element.tag) == "body":
+            return element
+    return root
+
+
 def _render_inline(element: Element, *, br_newline: bool = True) -> str:
-    """Render text while retaining tails, whitespace, and ``br`` boundaries."""
+    """Render safe text while retaining tails, whitespace, and boundaries."""
 
     parts: list[str] = []
     if element.text is not None:
         parts.append(element.text)
     for child in list(element):
+        if _is_active(child):
+            if child.tail is not None:
+                parts.append(child.tail)
+            continue
+        child_text = _render_inline(child, br_newline=br_newline)
         if _local_name(child.tag) == "br" and br_newline:
             parts.append("\n")
         else:
-            parts.append(_render_inline(child, br_newline=br_newline))
+            if (
+                _local_name(child.tag)
+                in {
+                    "div",
+                    "h1",
+                    "h2",
+                    "h3",
+                    "h4",
+                    "h5",
+                    "h6",
+                    "li",
+                    "ol",
+                    "p",
+                    "section",
+                    "ul",
+                }
+                and child_text
+                and parts
+                and not parts[-1].endswith(("\n", " ", "\t"))
+            ):
+                parts.append("\n")
+            parts.append(child_text)
         if child.tail is not None:
             parts.append(child.tail)
     return "".join(parts)
+
+
+def _safe_elements(root: Element) -> Iterator[Element]:
+    if _is_active(root):
+        return
+    yield root
+    for child in list(root):
+        yield from _safe_elements(child)
 
 
 def _element_depth_limited(data: bytes, maximum: int) -> Element:
@@ -347,7 +438,7 @@ def _metadata_value(metadata: tuple[InfoSysMetadata, ...], name: str) -> str | N
 
 def _table_rows(table: Element) -> tuple[tuple[str, ...], ...]:
     rows: list[tuple[str, ...]] = []
-    for row in table.iter():
+    for row in _safe_elements(table):
         if _local_name(row.tag) != "tr":
             continue
         cells = tuple(
@@ -361,12 +452,15 @@ def _table_rows(table: Element) -> tuple[tuple[str, ...], ...]:
 
 def _sections(root: Element) -> tuple[InfoSysSection, ...]:
     parent: dict[int, Element] = {}
-    for node in root.iter():
+    safe_nodes = tuple(_safe_elements(root))
+    safe_ids = {id(node) for node in safe_nodes}
+    for node in safe_nodes:
         for child in list(node):
-            parent[id(child)] = node
+            if id(child) in safe_ids:
+                parent[id(child)] = node
 
     candidates: list[tuple[Element, SectionKind]] = []
-    for element in root.iter():
+    for element in safe_nodes:
         tag = _local_name(element.tag)
         if tag == "table":
             candidates.append((element, "table"))
@@ -374,7 +468,18 @@ def _sections(root: Element) -> tuple[InfoSysSection, ...]:
             candidates.append((element, "warning"))
         elif _is_code(element):
             candidates.append((element, "code"))
-        elif tag in {"p", "h1", "h2", "h3", "h4", "h5", "h6"}:
+        elif tag in {
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "li",
+            "ol",
+            "p",
+            "ul",
+        }:
             candidates.append((element, "paragraph"))
 
     selected: list[tuple[Element, SectionKind]] = []
@@ -416,7 +521,7 @@ def _sections(root: Element) -> tuple[InfoSysSection, ...]:
 
 def _help_ids(root: Element) -> tuple[str, ...]:
     result: list[str] = []
-    for element in root.iter():
+    for element in _safe_elements(root):
         href = element.attrib.get("href")
         if href is None:
             continue
@@ -435,12 +540,18 @@ def _help_ids(root: Element) -> tuple[str, ...]:
 
 def _image_refs(root: Element) -> tuple[str, ...]:
     result: list[str] = []
-    for element in root.iter():
+    for element in _safe_elements(root):
         tag = _local_name(element.tag)
-        if tag == "img" and element.attrib.get("src"):
-            result.append(element.attrib["src"])
-        elif tag in {"object", "embed"} and element.attrib.get("data"):
-            result.append(element.attrib["data"])
+        if tag != "img" or not element.attrib.get("src"):
+            continue
+        src = element.attrib["src"]
+        try:
+            scheme = urlsplit(src).scheme.casefold()
+        except ValueError:
+            continue
+        if scheme in {"data", "javascript", "vbscript"}:
+            continue
+        result.append(src)
     return tuple(result)
 
 
@@ -455,6 +566,7 @@ def _topic_from_entry(
     max_xml_depth: int,
 ) -> InfoSysTopic:
     root = _element_depth_limited(data, max_xml_depth)
+    content_root = _safe_content_root(root)
     metadata = _metadata(root)
     title_element = next(
         (element for element in root.iter() if _local_name(element.tag) == "title"),
@@ -484,10 +596,35 @@ def _topic_from_entry(
         library=library,
         source=source,
         metadata=metadata,
-        sections=_sections(root),
-        image_refs=_image_refs(root),
-        help_ids=_help_ids(root),
+        sections=_sections(content_root),
+        image_refs=_image_refs(content_root),
+        help_ids=_help_ids(content_root),
     )
+
+
+def _validate_archive_layout(
+    handle: BinaryIO,
+    source_size: int,
+    limits: InfoSysLimits,
+) -> None:
+    """Bound the central-directory read before ``ZipFile`` allocates it."""
+
+    try:
+        endrec = zipfile._EndRecData(handle)  # type: ignore[attr-defined]
+    except OSError as exc:
+        raise InfoSysArchiveError("unable to inspect ZIP end record") from exc
+    if not endrec:
+        raise BadZipFile("File is not a zip file")
+
+    size_cd = int(endrec[zipfile._ECD_SIZE])  # type: ignore[attr-defined]
+    offset_cd = int(endrec[zipfile._ECD_OFFSET])  # type: ignore[attr-defined]
+    location = int(endrec[zipfile._ECD_LOCATION])  # type: ignore[attr-defined]
+    if size_cd > limits.max_central_directory_bytes:
+        raise InfoSysLimitError("central directory exceeds configured byte limit")
+    concat = location - size_cd - offset_cd
+    start_dir = offset_cd + concat
+    if start_dir < 0 or size_cd < 0 or start_dir + size_cd > source_size:
+        raise BadZipFile("central directory is outside the source archive")
 
 
 class InfoSysReader:
@@ -507,34 +644,69 @@ class InfoSysReader:
         self._limits = limits or InfoSysLimits()
         self._source_bytes: bytes | None = None
 
-    def _source_payload(self) -> bytes:
+    def _memory_payload(self) -> bytes:
         if self._source_bytes is not None:
             return self._source_bytes
         source = self._source
         try:
             if isinstance(source, (bytes, bytearray, memoryview)):
-                data = bytes(source)
-            elif isinstance(source, (str, Path)):
-                with Path(source).open("rb") as handle:
-                    data = _read_limited(
-                        cast(BinaryIO, handle),
-                        self._limits.max_source_bytes,
-                        what="source",
+                source_size = (
+                    source.nbytes if isinstance(source, memoryview) else len(source)
+                )
+                if source_size > self._limits.max_memory_source_bytes:
+                    raise InfoSysLimitError(
+                        "in-memory source exceeds configured byte limit"
                     )
+                data = bytes(source)
             else:
                 data = _read_limited(
-                    source,
-                    self._limits.max_source_bytes,
+                    cast(BinaryIO, source),
+                    self._limits.max_memory_source_bytes,
                     what="source",
                 )
         except InfoSysError:
             raise
         except (OSError, TypeError) as exc:
             raise InfoSysArchiveError("unable to read InfoSys source") from exc
-        if len(data) > self._limits.max_source_bytes:
-            raise InfoSysLimitError("source exceeds configured byte limit")
+        if len(data) > self._limits.max_archive_bytes:
+            raise InfoSysLimitError("source archive exceeds configured byte limit")
         self._source_bytes = data
         return data
+
+    @contextmanager
+    def _open_archive(self) -> Iterator[ZipFile]:
+        source = self._source
+        handle: BinaryIO
+        source_size: int
+        try:
+            if isinstance(source, (str, Path)):
+                path = Path(source)
+                info = path.stat()
+                if not stat.S_ISREG(info.st_mode):
+                    raise InfoSysArchiveError(
+                        "InfoSys source path is not a regular file"
+                    )
+                source_size = info.st_size
+                if source_size > self._limits.max_archive_bytes:
+                    raise InfoSysLimitError(
+                        "source archive exceeds configured byte limit"
+                    )
+                handle = cast(BinaryIO, path.open("rb"))
+            else:
+                payload = self._memory_payload()
+                source_size = len(payload)
+                handle = cast(BinaryIO, BytesIO(payload))
+            _validate_archive_layout(handle, source_size, self._limits)
+            handle.seek(0)
+            with ZipFile(handle, "r") as archive:
+                yield archive
+        except InfoSysError:
+            raise
+        except (BadZipFile, OSError, RuntimeError, TypeError) as exc:
+            raise InfoSysArchiveError("source is not a valid ZIP archive") from exc
+        finally:
+            if "handle" in locals():
+                handle.close()
 
     def read(
         self,
@@ -556,25 +728,14 @@ class InfoSysReader:
         ):
             raise ValueError("libraries must contain non-empty strings")
 
-        payload = self._source_payload()
-        try:
-            archive = ZipFile(BytesIO(payload), "r")
-        except (BadZipFile, OSError) as exc:
-            raise InfoSysArchiveError("source is not a valid ZIP archive") from exc
-
-        with archive:
+        with self._open_archive() as archive:
             infos = archive.infolist()
             if len(infos) > self._limits.max_archive_entries:
                 raise InfoSysLimitError("archive entry count exceeds configured limit")
-            declared_total = sum(info.file_size for info in infos if not info.is_dir())
-            if declared_total > self._limits.max_aggregate_bytes:
-                raise InfoSysLimitError(
-                    "declared archive bytes exceed configured limit"
-                )
 
             seen: set[str] = set()
             canonical_seen: set[str] = set()
-            validated: list[tuple[ZipInfo, str]] = []
+            selected: list[tuple[ZipInfo, str, str, Language]] = []
             for info in infos:
                 locator = _safe_entry_name(info.filename, is_directory=info.is_dir())
                 if locator is None:
@@ -588,36 +749,8 @@ class InfoSysReader:
                 if canonical in canonical_seen:
                     raise UnsafeArchiveError("archive contains colliding entry names")
                 canonical_seen.add(canonical)
-                if info.file_size > self._limits.max_entry_bytes:
-                    raise InfoSysLimitError(
-                        f"entry {locator!r} exceeds configured byte limit"
-                    )
                 if info.is_dir():
                     continue
-                validated.append((info, locator))
-
-            topics: list[InfoSysTopic] = []
-            actual_total = 0
-            for info, locator in validated:
-                try:
-                    with archive.open(info, "r") as entry:
-                        data = _read_limited(
-                            cast(BinaryIO, entry),
-                            self._limits.max_entry_bytes,
-                            what=f"entry {locator!r}",
-                        )
-                except InfoSysError:
-                    raise
-                except (BadZipFile, OSError, RuntimeError) as exc:
-                    raise InfoSysArchiveError(
-                        f"unable to read archive entry {locator!r}"
-                    ) from exc
-                actual_total += len(data)
-                if actual_total > self._limits.max_aggregate_bytes:
-                    raise InfoSysLimitError(
-                        "actual archive bytes exceed configured limit"
-                    )
-
                 if not locator.casefold().endswith((".html", ".htm", ".xhtml")):
                     continue
                 parts = locator.split("/")
@@ -632,6 +765,33 @@ class InfoSysReader:
                     continue
                 if language not in {None, "any", entry_language}:
                     continue
+                if info.file_size > self._limits.max_selected_entry_bytes:
+                    raise InfoSysLimitError(
+                        f"entry {locator!r} exceeds configured selected-read limit"
+                    )
+                selected.append((info, locator, entry_library, entry_language))
+
+            topics: list[InfoSysTopic] = []
+            actual_total = 0
+            for info, locator, entry_library, entry_language in selected:
+                try:
+                    with archive.open(info, "r") as entry:
+                        data = _read_limited(
+                            cast(BinaryIO, entry),
+                            self._limits.max_selected_entry_bytes,
+                            what=f"entry {locator!r}",
+                        )
+                except InfoSysError:
+                    raise
+                except (BadZipFile, OSError, RuntimeError) as exc:
+                    raise InfoSysArchiveError(
+                        f"unable to read archive entry {locator!r}"
+                    ) from exc
+                actual_total += len(data)
+                if actual_total > self._limits.max_selected_aggregate_bytes:
+                    raise InfoSysLimitError(
+                        "selected archive bytes exceed configured limit"
+                    )
                 topics.append(
                     _topic_from_entry(
                         locator,
