@@ -189,7 +189,7 @@ def write_topic_export(
 
 
 def _read_record(line: bytes) -> Topic:
-    if _UTF8_BOM in line:
+    if line.startswith(_UTF8_BOM):
         raise TopicExportValidationError("UTF-8 BOM is not allowed")
     payload = line[:-1] if line.endswith(b"\n") else line
     if not payload.strip():

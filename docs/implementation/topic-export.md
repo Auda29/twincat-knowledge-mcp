@@ -72,3 +72,18 @@ removed.
 
 Reading is side-effect free: it opens the selected file only for binary read
 and does not create temporary files, indexes, sidecars, or activation state.
+
+
+## Coordinator integration checkpoint
+
+The reviewed Windows staging-fsync fix from `cde8a56` was merged into this branch;
+export writes already fsync their writable `xb` stream. The coordinator then found
+that rejecting the UTF-8 BOM byte sequence anywhere in a record incorrectly
+rejected legitimate U+FEFF inside JSON strings. An actual write/read roundtrip
+failed before restricting BOM rejection to the start of a record. JSON framing
+BOMs remain invalid; embedded code/metadata content survives unchanged.
+
+Final combined verification: 23 export tests and 151 full tests passed, the latter
+on both CPython 3.12.10 and 3.13.12. Ruff check and mypy passed. These are real
+coordinator reruns, not an independent approval. Dedicated installed-export and
+native CI checks plus independent review remain open at this checkpoint.

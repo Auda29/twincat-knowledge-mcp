@@ -367,3 +367,13 @@ def test_reader_has_no_side_effects(tmp_path: Path) -> None:
 
     assert path.read_bytes() == before_bytes
     assert sorted(item.name for item in tmp_path.iterdir()) == before_names
+
+
+def test_embedded_feff_is_content_not_a_file_bom(tmp_path):
+    payload = _topic().model_dump(mode="json")
+    payload["sections"][0]["code"] = "before\ufeffafter"
+    payload["metadata"][0]["content"] = "\ufeffuninterpreted"
+    topic = Topic.model_validate_json(json.dumps(payload))
+    path = tmp_path / "unicode.jsonl"
+    write_topic_export(path, (topic,))
+    assert read_topic_export(path) == (topic,)
