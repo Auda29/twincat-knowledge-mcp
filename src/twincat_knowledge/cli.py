@@ -9,6 +9,7 @@ from collections import Counter
 from collections.abc import Sequence
 from pathlib import Path
 from typing import Literal
+from uuid import uuid4
 
 from . import __version__
 from .config import (
@@ -90,7 +91,16 @@ def _run_inspect(
     from .ingest.infosys import InfoSysError, read_infosys
 
     try:
-        topics = read_infosys(source, libraries=libraries, language=language)
+        # Inspection does not create an approved or reusable source snapshot.
+        # Per-invocation identities stay internal to this metadata-only command.
+        inspection_id = f"inspection-{uuid4().hex}"
+        topics = read_infosys(
+            source,
+            libraries=libraries,
+            language=language,
+            source_id=inspection_id,
+            snapshot_id=inspection_id,
+        )
         if title is not None:
             topics = tuple(
                 topic for topic in topics if topic.title.casefold() == title.casefold()

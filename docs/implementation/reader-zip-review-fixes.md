@@ -1,0 +1,65 @@
+# Reader review remediation: ZIP boundaries and source identity
+
+## Scope and status
+
+This coordinator slice addresses four findings from the independent review at
+`9e0830de61f3c88c1e6d122c69c06824583f9bf7`. The two XML extraction findings are
+being handled separately. This report does not close the reader review or the
+whole-product acceptance gate.
+
+- Corrupt DEFLATE data now raises `InfoSysArchiveError`, preserving the exception
+  cause rather than leaking `zlib.error` through the public API.
+- Path validation and collision detection share a bounded percent-decoding
+  fixpoint. Raw locators remain unchanged.
+- Central-directory preflight walks fixed 46-byte headers and bounded variable
+  fields before `ZipInfo` allocation. It counts real records, not the untrusted
+  EOCD count. Tests include ZIP64, forged low counts, and exact-limit success.
+- Both reader entry points require explicit `source_id` and `snapshot_id`.
+  Existing synthetic tests now supply fixture identities. The metadata-only CLI
+  supplies unique, internal inspection IDs per invocation; these are not approved
+  persistent snapshots and are not returned as such.
+
+## Actual RED -> GREEN evidence
+
+`uv run --frozen --python 3.12 pytest tests/security/test_infosys_zip_regressions.py -q`
+was run after each added behavior:
+
+1. Invalid DEFLATE BTYPE=3: one failure with raw `zlib.error`; after normalization,
+   one passed.
+2. Repeated percent-encoding collision: two failures (did not raise), two passed;
+   after shared decoding, the combined new/existing security tests were 12 passed.
+3. Entry cap before allocation: two failures at the `ZipInfo` allocation sentinel,
+   including forged EOCD count; after streaming preflight, 21 reader tests passed.
+4. Required source/snapshot IDs: one failure (did not raise); after removing the
+   defaults, nine archive regressions passed. The CLI then failed because it did
+   not supply the newly required IDs; the explicit inspection identity fixed it.
+
+All prior assertions were retained. No limit or check was removed.
+
+## Full local verification
+
+- CPython 3.12.13: normal full suite **69 passed in 4.12s**.
+- CPython 3.13.12: normal full suite **69 passed in 4.31s**.
+- Ruff check and format: passed; mypy: no issues in 12 source files.
+- Installed wheel and source-archive CLI tests are included in the full suite.
+- Separate sparse path probe: **2,147,483,963-byte** archive, **128-byte** memory
+  source limit, one selected topic. An unrelated malformed XHTML member was not
+  parsed. No full archive copy was made; the temporary synthetic archive was
+  removed by its temporary-directory context.
+- Builds/tests used the shared flock and a TMPDIR outside `/tmp`.
+
+## CI diagnosis: external storage gate remains
+
+The existing head `32f489a240b91c96379fd54529fcb1cfc5876182` failed in the
+`Upload private CI build (not a release)` step on all four Foundation jobs.
+The upload log in job `102896893292`, run `34484989466`, says:
+
+> Failed to CreateArtifact: Artifact storage quota has been hit. Unable to upload
+> any new artifacts. Usage is recalculated every 6-12 hours.
+
+The repository artifact API returned `total_count: 0`; there are no project-owned
+artifacts here to reclaim. No artifacts in other repositories were deleted,
+no spending settings were changed, and no CI check was disabled or made optional.
+Test/build success is separate from failed artifact delivery. The final head still
+needs native CI and independent review; real Python/vendor corpus acceptance is
+also open.

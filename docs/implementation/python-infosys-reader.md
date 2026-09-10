@@ -24,6 +24,13 @@ the second component is interpreted as a language directory
 (`1033`/`en`/`en-us` -> `en`; `1031`/`de`/`de-de` -> `de`). The reader never
 hardcodes a library name. `language="any"` is the default.
 
+`source_id` and `snapshot_id` are required keyword arguments in both public entry
+points. The caller must supply the identity of the source and snapshot being
+processed; the reader does not register or approve that snapshot. Global default
+IDs were removed because they falsely conflated unrelated archives. This is a
+pre-release API correction. The metadata-only CLI uses private, per-invocation
+inspection IDs, never persists them, and does not advertise a validated import.
+
 Before any member is opened or decompressed, the reader validates every central
 directory name, symlink flag, and duplicate/canonical collision, then filters
 for HTML/XHTML entries matching the requested library and language. Unselected
@@ -64,7 +71,10 @@ Pydantic frozen models provide JSON round-tripping through
 The path archive limit is a file-size check and does not allocate an archive-sized
 buffer. The in-memory source limit applies separately to bytes and streams.
 The central-directory size is checked from the ZIP end record before `ZipFile`
-reads that directory. Selected entry and aggregate limits are checked before
+reads that directory. A fixed-header, seek-based preflight counts actual records
+before any `ZipInfo` allocation, including ZIP64 end records. It does not trust
+a forged low entry count in the end record. Variable-length fields are skipped
+only within the validated directory boundary. Selected entry and aggregate limits are checked before
 and during decompression. The old `max_source_bytes`, `max_entry_bytes`, and
 `max_aggregate_bytes` keyword names remain compatibility aliases for the
 in-memory or selected-read limits; they do not turn a path into an in-memory
@@ -73,7 +83,10 @@ source.
 Directories are validated but not opened as files. Absolute paths, traversal,
 control characters, encoded traversal, URI/drive paths, backslashes, ADS-like
 segments, Windows device names, duplicate/case-colliding names, and symlinks
-are rejected. XHTML is parsed with `defusedxml` with DTD, entity, and external
+are rejected. Collision checks use the same bounded percent-decoding fixpoint as
+path validation, while returned locators retain their original spelling. Invalid
+DEFLATE members are normalized to `InfoSysArchiveError`, not raw `zlib.error`.
+XHTML is parsed with `defusedxml` with DTD, entity, and external
 reference processing forbidden. The parser enforces the XML nesting limit while
 building the tree.
 

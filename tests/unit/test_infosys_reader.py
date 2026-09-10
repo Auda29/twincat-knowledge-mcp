@@ -35,7 +35,11 @@ def test_reader_returns_topic_with_locator_library_language_and_hash() -> None:
 </html>
 """
 
-    topics = InfoSysReader(_archive({"tcplclib_alpha/1033/move.html": html})).read()
+    topics = InfoSysReader(
+        _archive({"tcplclib_alpha/1033/move.html": html}),
+        source_id="synthetic",
+        snapshot_id="fixture-1",
+    ).read()
 
     assert len(topics) == 1
     topic = topics[0]
@@ -63,7 +67,9 @@ def test_reader_preserves_metadata_sections_links_images_and_code_whitespace() -
 </body></html>"""
 
     topic = InfoSysReader(
-        _archive({"tcplclib_alpha/1033/structured.html": html})
+        _archive({"tcplclib_alpha/1033/structured.html": html}),
+        source_id="synthetic",
+        snapshot_id="fixture-1",
     ).read()[0]
 
     assert [(item.name, item.content) for item in topic.metadata] == [
@@ -95,7 +101,9 @@ def test_reader_supports_library_and_language_selection_without_hardcoded_librar
                 "tcplclib_alpha/1031/de.html": html,
                 "tcplclib_beta/1033/en.html": html,
             }
-        )
+        ),
+        source_id="synthetic",
+        snapshot_id="fixture-1",
     ).read(libraries=["tcplclib_beta"], language="en")
 
     assert [(topic.library, topic.language) for topic in topics] == [
@@ -106,14 +114,22 @@ def test_reader_supports_library_and_language_selection_without_hardcoded_librar
 def test_reader_ignores_safe_directory_entries() -> None:
     html = "<html xmlns='http://www.w3.org/1999/xhtml'><body><p>x</p></body></html>"
 
-    topics = InfoSysReader(_archive({"lib/": b"", "lib/1033/x.html": html})).read()
+    topics = InfoSysReader(
+        _archive({"lib/": b"", "lib/1033/x.html": html}),
+        source_id="synthetic",
+        snapshot_id="fixture-1",
+    ).read()
 
     assert len(topics) == 1
 
 
 def test_reader_json_roundtrip_and_repeat_read_are_deterministic() -> None:
     html = "<html xmlns='http://www.w3.org/1999/xhtml'><body><p>x</p></body></html>"
-    reader = InfoSysReader(_archive({"lib/1033/x.html": html}))
+    reader = InfoSysReader(
+        _archive({"lib/1033/x.html": html}),
+        source_id="synthetic",
+        snapshot_id="fixture-1",
+    )
 
     first = reader.read()
     second = reader.read()
@@ -128,6 +144,8 @@ def test_reader_enforces_actual_entry_and_aggregate_bytes() -> None:
     reader = InfoSysReader(
         _archive({"lib/1033/x.html": html}),
         limits=InfoSysLimits(max_entry_bytes=10, max_aggregate_bytes=20),
+        source_id="synthetic",
+        snapshot_id="fixture-1",
     )
 
     with pytest.raises(InfoSysLimitError):
@@ -157,6 +175,8 @@ def test_path_source_uses_file_backed_archive_and_reads_only_selected_entries(
             max_memory_source_bytes=128,
             max_selected_entry_bytes=1024,
         ),
+        source_id="synthetic",
+        snapshot_id="fixture-1",
     ).read(libraries=["lib"], language="en")
 
     assert [topic.source.locator for topic in topics] == ["lib/1033/selected.html"]

@@ -9,7 +9,9 @@ from __future__ import annotations
 import hashlib
 import re
 import stat
+import struct
 import zipfile
+import zlib
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -339,6 +341,17 @@ def _element_depth_limited(data: bytes, maximum: int) -> Element:
     return root
 
 
+def _decoded_entry_name(name: str) -> str:
+    """Share the bounded decoding identity between validation and collisions."""
+    decoded = name
+    for _ in range(8):
+        unquoted = unquote(decoded)
+        if unquoted == decoded:
+            return decoded
+        decoded = unquoted
+    raise UnsafeArchiveError("archive entry percent-decoding is too deep")
+
+
 def _safe_entry_name(name: str, *, is_directory: bool) -> str | None:
     if not name or "\x00" in name or "\\" in name:
         raise UnsafeArchiveError("archive entry has an unsafe path")
@@ -350,14 +363,7 @@ def _safe_entry_name(name: str, *, is_directory: bool) -> str | None:
     if _DRIVE_PATTERN.match(candidate) or _LANGUAGE_PATTERN.match(candidate):
         raise UnsafeArchiveError("archive entry must not be a drive path or URI")
 
-    decoded = candidate
-    for _ in range(8):
-        unquoted = unquote(decoded)
-        if unquoted == decoded:
-            break
-        decoded = unquoted
-    else:
-        raise UnsafeArchiveError("archive entry percent-decoding is too deep")
+    decoded = _decoded_entry_name(candidate)
     if any(ord(char) < 32 or ord(char) == 127 for char in decoded):
         raise UnsafeArchiveError("archive entry contains a control character")
     decoded_path = decoded.split("#", 1)[0]
@@ -626,6 +632,26 @@ def _validate_archive_layout(
     if start_dir < 0 or size_cd < 0 or start_dir + size_cd > source_size:
         raise BadZipFile("central directory is outside the source archive")
 
+    # Walk fixed-size headers without materializing names or ZipInfo objects.
+    # Do not trust the EOCD count: a forged small count must not bypass the cap.
+    handle.seek(start_dir)
+    consumed = 0
+    count = 0
+    while consumed < size_cd:
+        if count >= limits.max_archive_entries:
+            raise InfoSysLimitError("archive entry count exceeds configured limit")
+        if size_cd - consumed < 46:
+            raise BadZipFile("truncated central directory header")
+        header = handle.read(46)
+        if len(header) != 46 or header[:4] != b"PK\x01\x02":
+            raise BadZipFile("invalid central directory header")
+        variable_size = sum(struct.unpack_from("<HHH", header, 28))
+        consumed += 46 + variable_size
+        if consumed > size_cd:
+            raise BadZipFile("central directory record exceeds its declared boundary")
+        handle.seek(variable_size, 1)
+        count += 1
+
 
 class InfoSysReader:
     """Read selected XHTML topics from a bounded .mshc ZIP source."""
@@ -634,8 +660,8 @@ class InfoSysReader:
         self,
         source: SourceInput,
         *,
-        source_id: str = "infosys",
-        snapshot_id: str = "infosys-read",
+        source_id: str,
+        snapshot_id: str,
         limits: InfoSysLimits | None = None,
     ) -> None:
         self._source = source
@@ -745,7 +771,7 @@ class InfoSysReader:
                 seen.add(locator)
                 if _entry_is_symlink(info):
                     raise UnsafeArchiveError("archive symlink entries are forbidden")
-                canonical = unquote(locator).casefold()
+                canonical = _decoded_entry_name(locator).casefold()
                 if canonical in canonical_seen:
                     raise UnsafeArchiveError("archive contains colliding entry names")
                 canonical_seen.add(canonical)
@@ -783,7 +809,7 @@ class InfoSysReader:
                         )
                 except InfoSysError:
                     raise
-                except (BadZipFile, OSError, RuntimeError) as exc:
+                except (BadZipFile, OSError, RuntimeError, zlib.error) as exc:
                     raise InfoSysArchiveError(
                         f"unable to read archive entry {locator!r}"
                     ) from exc
@@ -811,8 +837,8 @@ def read_infosys(
     *,
     libraries: Iterable[str] | None = None,
     language: LanguageFilter = "any",
-    source_id: str = "infosys",
-    snapshot_id: str = "infosys-read",
+    source_id: str,
+    snapshot_id: str,
     limits: InfoSysLimits | None = None,
 ) -> tuple[InfoSysTopic, ...]:
     """Convenience wrapper around :class:`InfoSysReader`."""

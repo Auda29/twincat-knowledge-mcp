@@ -45,7 +45,11 @@ def test_reader_rejects_traversal_absolute_and_windows_entry_names() -> None:
         "lib/%252e%252e/outside.html",
     ):
         with pytest.raises(UnsafeArchiveError):
-            InfoSysReader(_archive([(name, b"x", None)])).read()
+            InfoSysReader(
+                _archive([(name, b"x", None)]),
+                source_id="synthetic",
+                snapshot_id="fixture-1",
+            ).read()
 
 
 def test_reader_rejects_duplicate_and_case_colliding_entries() -> None:
@@ -56,7 +60,9 @@ def test_reader_rejects_duplicate_and_case_colliding_entries() -> None:
     ):
         with warnings.catch_warnings(), pytest.raises(UnsafeArchiveError):
             warnings.simplefilter("ignore", UserWarning)
-            InfoSysReader(_archive(entries)).read()
+            InfoSysReader(
+                _archive(entries), source_id="synthetic", snapshot_id="fixture-1"
+            ).read()
 
 
 def test_reader_rejects_symlink_entries() -> None:
@@ -64,7 +70,9 @@ def test_reader_rejects_symlink_entries() -> None:
 
     with pytest.raises(UnsafeArchiveError):
         InfoSysReader(
-            _archive([("lib/1033/link.html", b"target", symlink_mode)])
+            _archive([("lib/1033/link.html", b"target", symlink_mode)]),
+            source_id="synthetic",
+            snapshot_id="fixture-1",
         ).read()
 
 
@@ -72,7 +80,10 @@ def test_reader_enforces_entry_count_and_declared_aggregate_limits() -> None:
     many = [(f"lib/1033/{index}.bin", b"x", None) for index in range(3)]
     with pytest.raises(InfoSysLimitError):
         InfoSysReader(
-            _archive(many), limits=InfoSysLimits(max_archive_entries=2)
+            _archive(many),
+            limits=InfoSysLimits(max_archive_entries=2),
+            source_id="synthetic",
+            snapshot_id="fixture-1",
         ).read()
 
     with pytest.raises(InfoSysLimitError):
@@ -82,6 +93,8 @@ def test_reader_enforces_entry_count_and_declared_aggregate_limits() -> None:
                 max_selected_entry_bytes=10,
                 max_selected_aggregate_bytes=4,
             ),
+            source_id="synthetic",
+            snapshot_id="fixture-1",
         ).read()
 
 
@@ -94,14 +107,23 @@ def test_reader_enforces_actual_source_bytes_even_when_stream_ignores_read_size(
 
     source = UnboundedStream(b"x" * 20)
     with pytest.raises(InfoSysLimitError):
-        InfoSysReader(source, limits=InfoSysLimits(max_source_bytes=10)).read()
+        InfoSysReader(
+            source,
+            limits=InfoSysLimits(max_source_bytes=10),
+            source_id="synthetic",
+            snapshot_id="fixture-1",
+        ).read()
 
 
 def test_reader_rejects_xxe_and_xml_depth_overflow() -> None:
     xxe = b"""<!DOCTYPE html [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
 <html xmlns="http://www.w3.org/1999/xhtml"><body><p>&xxe;</p></body></html>"""
     with pytest.raises(InfoSysXmlError):
-        InfoSysReader(_archive([("lib/1033/x.html", xxe, None)])).read()
+        InfoSysReader(
+            _archive([("lib/1033/x.html", xxe, None)]),
+            source_id="synthetic",
+            snapshot_id="fixture-1",
+        ).read()
 
     nested = (
         b"<html xmlns='http://www.w3.org/1999/xhtml'>"
@@ -114,6 +136,8 @@ def test_reader_rejects_xxe_and_xml_depth_overflow() -> None:
         InfoSysReader(
             _archive([("lib/1033/x.html", nested, None)]),
             limits=InfoSysLimits(max_xml_depth=4),
+            source_id="synthetic",
+            snapshot_id="fixture-1",
         ).read()
 
 
@@ -130,7 +154,11 @@ def test_reader_extracts_article_content_and_removes_active_content_with_tails()
 <img src="javascript:alert(1)" />
 </article></body></html>"""
 
-    topic = InfoSysReader(_archive([("lib/1033/article.html", html, None)])).read()[0]
+    topic = InfoSysReader(
+        _archive([("lib/1033/article.html", html, None)]),
+        source_id="synthetic",
+        snapshot_id="fixture-1",
+    ).read()[0]
 
     assert [(section.kind, section.content) for section in topic.sections] == [
         ("paragraph", "keeptailend"),
@@ -150,4 +178,6 @@ def test_reader_enforces_central_directory_bound_before_zipfile_reads_it() -> No
         InfoSysReader(
             _archive(entries),
             limits=InfoSysLimits(max_central_directory_bytes=64),
+            source_id="synthetic",
+            snapshot_id="fixture-1",
         ).read()
