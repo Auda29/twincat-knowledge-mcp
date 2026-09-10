@@ -320,3 +320,24 @@ def test_duplicate_ids_raise_controlled_validation_error(tmp_path):
     with pytest.raises(TopicIndexValidationError, match="duplicate"):
         create_topic_index(path, [_topic(), _topic()])
     assert list(tmp_path.iterdir()) == []
+
+
+def test_index_fsync_uses_writable_handle_for_windows(tmp_path, monkeypatch):
+    import os
+
+    real_fsync = os.fsync
+    synced = []
+
+    def require_writable_fsync(fd):
+        # Windows CRT _commit rejects read-only descriptors. A zero-byte write
+        # checks the same prerequisite on POSIX without changing file contents.
+        os.write(fd, b"")
+        real_fsync(fd)
+        synced.append(fd)
+
+    monkeypatch.setattr(topic_index.os, "fsync", require_writable_fsync)
+    path = tmp_path / "portable.sqlite"
+    assert create_topic_index(path, [_topic()]) == 1
+    assert len(synced) == 1
+    with TopicIndex(path) as index:
+        assert index.get_topic("topic-1") == _topic()
