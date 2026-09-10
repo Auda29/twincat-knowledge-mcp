@@ -252,15 +252,15 @@ def read_topic_export(
                     raise TopicExportBoundsError(
                         "topic record exceeds its supported byte bound"
                     )
+                if len(topics) >= max_topic_count:
+                    raise TopicExportBoundsError(
+                        "topic count exceeds its supported bound"
+                    )
                 topic = _read_record(line)
                 if topic.id in seen_ids:
                     raise TopicExportValidationError("duplicate topic id")
                 seen_ids.add(topic.id)
                 topics.append(topic)
-                if len(topics) > max_topic_count:
-                    raise TopicExportBoundsError(
-                        "topic count exceeds its supported bound"
-                    )
             return tuple(topics)
     except TopicExportError:
         raise

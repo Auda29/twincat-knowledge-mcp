@@ -240,6 +240,16 @@ def test_topic_limit_consumes_only_one_record_past_bound(tmp_path: Path) -> None
     assert consumed == 3
 
 
+def test_reader_topic_limit_is_checked_before_materializing_more_models(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "bounded-read.jsonl"
+    write_topic_export(path, [_topic("one"), _topic("two"), _topic("three")])
+
+    with pytest.raises(TopicExportBoundsError, match="topic count"):
+        read_topic_export(path, max_topics=2)
+
+
 def test_generator_failure_cleans_only_private_build_area(tmp_path: Path) -> None:
     foreign = tmp_path / "operator.txt"
     foreign.write_bytes(b"keep")
