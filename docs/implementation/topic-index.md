@@ -68,8 +68,12 @@ Coordinator review then reproduced four failures: deletion of foreign files with
 SQLite sidecar suffixes and exposure of a partial output. Private staging and
 exclusive publication changed these to 18 focused tests passing. Final full
 suite: **125 passed on CPython 3.12.10 and 3.13.12**; Ruff check, format check and
-mypy passed. Existing wheel/sdist tests ran, but they do not yet explicitly import
-or query the new index module; that installed-index assertion remains open.
+mypy passed. Subsequently the coordinator extended both installed-artifact tests:
+foreign-CWD isolated Python imports the installed index module, then performs
+reader -> normalizer -> index creation -> reopen -> exact get and filtered search,
+with unchanged database SHA-256 after reads. Both wheel and sdist cases passed on
+CPython 3.13.12. This is a software installation test with original synthetic data,
+not a real vendor-corpus or platform-wide acceptance claim.
 
 Independent index review and native Windows/Linux CI for this component remain
 required. The upstream artifact-upload quota issue is separate and has not been
