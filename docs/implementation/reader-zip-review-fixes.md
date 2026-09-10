@@ -63,3 +63,21 @@ no spending settings were changed, and no CI check was disabled or made optional
 Test/build success is separate from failed artifact delivery. The final head still
 needs native CI and independent review; real Python/vendor corpus acceptance is
 also open.
+
+
+## Native CI follow-up: Python patch-release ZIP64 compatibility
+
+Run 34497239566 at df8588d exposed two real test failures on Windows Python
+3.12.10, in addition to the separately failing artifact uploads on other jobs.
+The failing ZIP64 cases were reproduced unchanged on Linux CPython 3.12.10:
+2 failed, 7 passed. Inspection of the actual stdlib implementations showed that
+3.12.10 leaves `_ECD_LOCATION` at the classic EOCD and subtracts the fixed ZIP64
+records later in `ZipFile`; 3.12.13/3.13.12 normalize the end-record location
+inside `_EndRecData64`. The preflight had assumed only the newer convention.
+
+The fix distinguishes the actual record signature at the returned location,
+adjusts classic-location ZIP64 records, validates the resulting signature, and
+then runs the same bounded directory walk. No OS/version guess, parser limit
+removal or test exclusion was used. After the fix: the same 9 archive tests pass
+on 3.12.10 and 3.13.12; full suite 74 passed on 3.12.10 (4.41s). Ruff and mypy
+passed. Native Windows rerun and review of this follow-up remain required.

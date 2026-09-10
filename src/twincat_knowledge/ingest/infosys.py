@@ -684,6 +684,18 @@ def _validate_archive_layout(
     location = int(endrec[zipfile._ECD_LOCATION])  # type: ignore[attr-defined]
     if size_cd > limits.max_central_directory_bytes:
         raise InfoSysLimitError("central directory exceeds configured byte limit")
+    if endrec[zipfile._ECD_SIGNATURE] == b"PK\x06\x06":  # type: ignore[attr-defined]
+        # Older Python patch releases retain the classic EOCD location; newer
+        # releases return the ZIP64 EOCD location. Inspect the record itself,
+        # rather than guessing from the OS or Python version.
+        handle.seek(location)
+        if handle.read(4) == b"PK\x05\x06":
+            location -= 56 + 20  # fixed ZIP64 EOCD + locator in older zipfile
+        if location < 0:
+            raise BadZipFile("ZIP64 end record is outside the source archive")
+        handle.seek(location)
+        if handle.read(4) != b"PK\x06\x06":
+            raise BadZipFile("invalid ZIP64 end record location")
     concat = location - size_cd - offset_cd
     start_dir = offset_cd + concat
     if start_dir < 0 or size_cd < 0 or start_dir + size_cd > source_size:
