@@ -36,9 +36,11 @@ Den vollständigen Plan `docs/PLAN.md` in `Auda29/-twincat-knowledge-mcp` inkrem
 - Scope: Repository `Auda29/-twincat-knowledge-mcp`, zugehörige isolierte Worktrees und Testumgebungen.
 - Repository bleibt privat. Keine öffentliche Registry oder öffentliche Releases.
 - Kein Projektfokus als Voraussetzung, kein ADS-/SPS-Schreibzugriff und keine Engineering-Aktionen.
+- Bring your own documentation: Ausgeliefert wird nur MCP-Software; Nutzer beschaffen und stellen InfoSys-/ESI-Dokumentation selbst bereit. Keine Weiterverteilung von Beckhoff-Dokumentation oder daraus erzeugten Wissenspaketen/Suchindizes durch das Projekt.
 - Keine Beckhoff-Volltexte, privaten Wissenspakete oder Secrets in Git/Software-Releases.
+- Nutzungsbedingungen für konkrete lokale Verarbeitung und mögliche Auszugübertragung an externe Modellanbieter getrennt prüfen; keine pauschale Forderung nach schriftlicher Herstellerfreigabe für jede lokale Nutzung. Eine reale, vom Betreiber bereitgestellte und für den Testzweck nutzbare Stichprobe bleibt für Import-/Fachabnahme erforderlich.
 - Keine Sicherheitsgrenze abschwächen, Tests entfernen oder Abnahmeziele verkleinern, um grüne Ergebnisse zu erhalten.
-- Implementierungsarbeit auf `swarm/*`-Branches mit reviewbaren PRs; keine automatische Zusammenführung nach `main` oder Release-Veröffentlichung ohne gesonderte Freigabe. Lokale Release-Artefakte dürfen gebaut und getestet werden.
+- Implementierungsarbeit auf `swarm/*`-Branches mit reviewbaren PRs. Der Nutzer hat den Koordinator beauftragt, PRs nach unabhängiger Review, Behebung aller Merge-Blocker und verifizierter grüner CI am finalen Stand selbstständig nach `main` zusammenzuführen; keine zusätzliche Nutzerfreigaberunde. Keine Admin-Umgehung oder Abschwächung von Prüfungen. Ein Grundlagen-Merge ist keine vollständige Produktabnahme; offene PLAN-Gates bleiben offen. Release-Veröffentlichungen benötigen weiterhin gesonderte Freigabe; lokale Artefakte dürfen gebaut und getestet werden.
 - Keine Änderungen an anderen Hermes-Profilen. Eine profilweite Modellumstellung betrifft auch weitere Delegationen und ist entsprechend sichtbar zu machen.
 
 ## Stop-Bedingungen
@@ -58,7 +60,7 @@ Nachdem das leichte Worker-Modell konfiguriert und überprüft wurde, in der Rep
 /goal Setze docs/PLAN.md in /home/hermes/workspace/-twincat-knowledge-mcp vollständig mit einem Agent-Swarm gemäß docs/GOAL.md um.
 verify: Erfülle jede Definition-of-Done-Bedingung aus docs/PLAN.md mit echten Tests, Installations-/MCP-/Hostnachweisen und verifizierten Artefakten. Blockierte oder übersprungene Kriterien bleiben offen.
 constraints: Leichtes verifiziertes Subagent-Modell, bevorzugt GPT Luna; maximal drei parallele Worker; TDD, getrennte Worktrees, unabhängige Review. Repo privat, keine SPS-Aktionen oder Weitergabe unfreigegebener Beckhoff-Daten.
-boundaries: Nur Auda29/-twincat-knowledge-mcp und zugehörige isolierte Tests/Worktrees; Implementierung über swarm/*-Branches und PRs, kein autonomer Merge oder Release.
+boundaries: Nur Auda29/-twincat-knowledge-mcp und zugehörige isolierte Tests/Worktrees; Implementierung über swarm/*-Branches und PRs; selbstständiger Merge erst nach unabhängiger Review und grüner CI, kein autonomes Release.
 stop when: Modellzugang, Datenfreigabe, notwendige Plattformtests oder zusätzliche Berechtigungen fehlen. Blocker konkret benennen, nicht als Produkterfolg melden.
 ```
 

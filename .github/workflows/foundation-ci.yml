@@ -1,0 +1,59 @@
+name: Foundation CI
+
+on:
+  push:
+    branches: [main, 'swarm/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: foundation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  foundation:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, windows-2022]
+        python: ['3.12', '3.13']
+    env:
+      UV_LINK_MODE: copy
+      UV_NO_PROGRESS: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Set up uv
+        uses: astral-sh/setup-uv@d0d8abe699bfb85fec6de9f7adb5ae17292296ff # v6
+        with:
+          version: '0.11.1'
+          enable-cache: false
+      - name: Install locked dependencies
+        run: uv sync --frozen --dev --python ${{ matrix.python }}
+      - name: Record runtime
+        run: uv run --frozen python --version
+      - name: Lint
+        run: uv run --frozen ruff check src tests
+      - name: Check formatting
+        run: uv run --frozen ruff format --check src tests
+      - name: Type check
+        run: uv run --frozen mypy
+      - name: Check dependency compatibility
+        run: uv pip check
+      - name: Unit and installed-artifact tests
+        run: uv run --frozen python -m pytest -q tests
+      - name: Build wheel and source archive
+        run: uv build

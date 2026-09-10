@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+
+# Build artefacts
+dist/
+build/
+*.egg-info/
+
+# Local operator state and corpora
+.env
+*.local.toml
+corpus/
+# The source package is code, not an operator corpus.
+!src/twincat_knowledge/corpus/
+packages/
