@@ -276,3 +276,29 @@ def test_fts5_unavailability_is_actionable_and_leaves_no_output(
         create_topic_index(path, [_topic()])
 
     assert not path.exists()
+
+
+@pytest.mark.parametrize("suffix", ["-journal", "-wal", "-shm"])
+def test_failed_build_preserves_unowned_sidecar_names(tmp_path, suffix):
+    path = tmp_path / "output.sqlite"
+    foreign = path.with_name(path.name + suffix)
+    foreign.write_bytes(b"unrelated operator file")
+    with pytest.raises(TopicIndexBoundsError):
+        create_topic_index(path, [_topic("a"), _topic("b")], max_topics=1)
+    assert foreign.exists(), "cleanup deleted a file it did not create"
+    assert foreign.read_bytes() == b"unrelated operator file"
+    assert not path.exists()
+
+
+def test_build_does_not_expose_partial_output_or_replace_concurrent_file(tmp_path):
+    path = tmp_path / "output.sqlite"
+
+    def topics():
+        assert not path.exists(), "partially built database is publicly visible"
+        path.write_bytes(b"operator-created concurrent file")
+        yield _topic()
+
+    with pytest.raises(TopicIndexPathError):
+        create_topic_index(path, topics())
+    assert path.read_bytes() == b"operator-created concurrent file"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["output.sqlite"]

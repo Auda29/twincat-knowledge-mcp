@@ -6,6 +6,7 @@ import os
 import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from types import TracebackType
 from typing import Self
 
@@ -95,22 +96,6 @@ def _validate_text_size(value: str, name: str, maximum: int) -> None:
         raise TopicIndexBoundsError(f"{name} exceeds the {maximum}-byte UTF-8 limit")
 
 
-def _cleanup_owned_artifact(path: Path) -> None:
-    for candidate in (
-        path,
-        path.with_name(path.name + "-journal"),
-        path.with_name(path.name + "-wal"),
-        path.with_name(path.name + "-shm"),
-    ):
-        try:
-            candidate.unlink()
-        except FileNotFoundError:
-            pass
-        except OSError:
-            # Preserve the original build failure; cleanup is best effort.
-            pass
-
-
 def create_topic_index(
     path: Path,
     topics: Iterable[Topic],
@@ -119,29 +104,50 @@ def create_topic_index(
     max_topic_json_bytes: int = MAX_TOPIC_JSON_BYTES,
     max_search_text_bytes: int = MAX_SEARCH_TEXT_BYTES,
 ) -> int:
-    """Create one new index atomically; never replace an existing path."""
+    """Build privately, then publish a complete new file without replacement."""
     _check_fts5()
     _check_bound(max_topics, "max_topics", MAX_TOPICS)
     _check_bound(max_topic_json_bytes, "max_topic_json_bytes", MAX_TOPIC_JSON_BYTES)
     _check_bound(max_search_text_bytes, "max_search_text_bytes", MAX_SEARCH_TEXT_BYTES)
-    output = Path(path)
+    output = Path(path).absolute()
     if not output.parent.is_dir():
         raise TopicIndexPathError("index parent directory must already exist")
     if output.exists() or output.is_symlink():
         raise TopicIndexPathError("index output path must not already exist")
-
-    owned = False
-    connection: sqlite3.Connection | None = None
-    try:
+    # SQLite owns sidecars only inside this private build directory. Never
+    # delete similarly named files from the operator's output directory.
+    with TemporaryDirectory(prefix=".topic-index-", dir=output.parent) as directory:
+        staging = Path(directory) / "index.sqlite"
+        count = _write_database(
+            staging, topics, max_topics, max_topic_json_bytes, max_search_text_bytes
+        )
+        staging.chmod(0o600)
+        with staging.open("rb") as handle:
+            os.fsync(handle.fileno())
         try:
-            descriptor = os.open(output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
-            owned = True
-            os.close(descriptor)
+            # Same-filesystem hard link is atomic and refuses an existing target.
+            # No rename/replace fallback: those can overwrite a concurrent file.
+            os.link(staging, output)
         except FileExistsError as exc:
             raise TopicIndexPathError(
                 "index output path must not already exist"
             ) from exc
-        connection = sqlite3.connect(output)
+        except OSError as exc:
+            raise TopicIndexPathError(
+                "could not publish index; output filesystem must support hard links"
+            ) from exc
+        return count
+
+
+def _write_database(
+    staging: Path,
+    topics: Iterable[Topic],
+    max_topics: int,
+    max_topic_json_bytes: int,
+    max_search_text_bytes: int,
+) -> int:
+    connection = sqlite3.connect(staging)
+    try:
         connection.isolation_level = None
         connection.execute("BEGIN EXCLUSIVE")
         connection.execute(
@@ -189,18 +195,9 @@ def create_topic_index(
             )
         connection.execute("COMMIT")
         return count
-    except BaseException:
-        if connection is not None:
-            try:
-                connection.execute("ROLLBACK")
-            except sqlite3.Error:
-                pass
-        if owned:
-            _cleanup_owned_artifact(output)
-        raise
     finally:
-        if connection is not None:
-            connection.close()
+        # Close before TemporaryDirectory cleanup, including on Windows.
+        connection.close()
 
 
 def _readonly_uri(path: Path) -> str:
