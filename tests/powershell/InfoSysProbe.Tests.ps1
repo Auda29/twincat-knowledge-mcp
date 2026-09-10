@@ -13,6 +13,36 @@ BeforeAll {
     }
 }
 Describe 'Read-only InfoSys probe' {
+    It 'keeps block and cell boundaries without splitting inline words' {
+        $p = Join-Path $TestDrive 'structure.mshc'
+        New-Fixture $p -Html '<html><head><title>MC_MoveAbsolute</title></head><body><article><h1>Heading</h1><p>First <b>bold</b> paragraph.</p><p>Second paragraph.</p><ul><li>One</li><li>Two</li></ul><table><tr><td>A</td><td><p>B</p><p>C</p></td></tr></table></article></body></html>'
+        $r = Invoke-InfoSysProbe -ArchivePath $p -IncludeContent
+        $r.matches[0].text | Should -Match "Heading`n+First bold paragraph\.`n+Second paragraph\."
+        $r.matches[0].text | Should -Match "One`n+Two"
+        $r.matches[0].text | Should -Match "A`t"
+        $r.matches[0].tables[0].rows[0].cells[1] | Should -Match "B`n+C"
+    }
+    It 'retains whitespace-only code nodes and spacing between inline elements' {
+        $p = Join-Path $TestDrive 'whitespace.mshc'
+        New-Fixture $p -Html "<html><head><title>MC_MoveAbsolute</title></head><body><article><p><b>One</b> <i>two</i></p><pre><span>A</span>`n`n`t<span>B</span></pre></article></body></html>"
+        $r = Invoke-InfoSysProbe -ArchivePath $p -IncludeContent
+        $r.matches[0].code[0] | Should -BeExactly "A`n`n`tB"
+        $r.matches[0].text | Should -Match 'One two'
+    }
+    It 'preserves br-separated code lines through archive and JSON extraction' {
+        $p = Join-Path $TestDrive 'code-breaks.mshc'
+        New-Fixture $p -Html '<html xmlns="http://www.w3.org/1999/xhtml"><head><title>MC_MoveAbsolute</title></head><body><article><pre><span>VAR_INPUT</span><br/><span>    Example : BOOL;</span><br/><br/>END_VAR</pre></article></body></html>'
+        $r = Invoke-InfoSysProbe -ArchivePath $p -IncludeContent | ConvertTo-Json -Depth 20 | ConvertFrom-Json
+        $r.matches[0].code[0] | Should -BeExactly "VAR_INPUT`n    Example : BOOL;`n`nEND_VAR"
+    }
+    It 'preserves code tokens, NBSP indentation and CRLF without executing markup' {
+        $p = Join-Path $TestDrive 'code-tokens.mshc'
+        New-Fixture $p -Html "<html><head><title>MC_MoveAbsolute</title></head><body><article><pre><code>&#160;&#160;IF X &lt; 2 THEN`r`n`tY := 'a;b';`r`nEND_IF</code></pre><script>DO_NOT_RUN</script></article></body></html>"
+        $r = Invoke-InfoSysProbe -ArchivePath $p -IncludeContent
+        $r.matches[0].code.Count | Should -Be 1
+        $r.matches[0].code[0] | Should -BeExactly (([string][char]160) * 2 + "IF X < 2 THEN`n`tY := 'a;b';`nEND_IF")
+        $r.matches[0].text | Should -Not -Match 'DO_NOT_RUN'
+    }
     It 'discovers a unique English package without a fixed revision' {
         $root = Join-Path $TestDrive 'Catalogs'
         $dir = Join-Path $root 'VisualStudio15/ContentStore/EN-US'

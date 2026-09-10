@@ -52,6 +52,20 @@ To inspect actual extracted content locally, opt in explicitly:
 ```
 
 This includes text, metadata, code blocks (`pre`/`code`), table rows/cells and links.
+Line breaks from `br` are retained; block elements get newline boundaries and
+adjacent table cells get tab separators in the flattened article text. Inline
+spans are not split. Existing code whitespace, including blank lines, tabs and
+non-breaking spaces, is preserved; XML normalizes literal CRLF to LF. This is
+structural text extraction, not CSS-aware browser layout reconstruction.
+
+JSON represents line breaks as `\n`. To display only the code blocks as actual
+multiline text locally (rather than escaped JSON strings):
+
+```powershell
+$report = .\Test-InfoSys.ps1 -IncludeContent | ConvertFrom-Json
+$report.matches[0].code | ForEach-Object { $_; '' }
+```
+
 Do not post this full output to GitHub or send it to a model by default: it contains
 vendor documentation. The script itself never uploads anything. To save a local
 report, redirect to a **new path outside the InfoSys installation**; PowerShell

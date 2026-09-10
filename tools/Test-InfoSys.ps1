@@ -40,6 +40,30 @@ function Find-InfoSysArchive {
     return $candidates[0]
 }
 
+function ConvertFrom-InfoSysMarkup {
+    param([Parameter(Mandatory = $true)] [Xml.XmlNode] $Node)
+    $copy = $Node.CloneNode($true)
+    foreach ($br in @($copy.SelectNodes('.//*[local-name()="br"]'))) {
+        [void] $br.ParentNode.ReplaceChild($copy.OwnerDocument.CreateTextNode("`n"), $br)
+    }
+    # Insert structural separators into a clone, never into the source DOM.
+    # Inline spans remain adjacent; existing whitespace (especially code) stays.
+    $blocks = @('p', 'div', 'section', 'article', 'header', 'footer', 'aside',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+        'blockquote', 'pre', 'table', 'tr', 'hr')
+    foreach ($element in @($copy.SelectNodes('.//*'))) {
+        if ($element.LocalName -in $blocks) {
+            [void] $element.ParentNode.InsertBefore($copy.OwnerDocument.CreateTextNode("`n"), $element)
+            [void] $element.ParentNode.InsertAfter($copy.OwnerDocument.CreateTextNode("`n"), $element)
+        } elseif ($element.LocalName -in @('td', 'th') -and
+            $null -ne $element.SelectSingleNode('preceding-sibling::*[local-name()="td" or local-name()="th"]')) {
+            [void] $element.ParentNode.InsertBefore($copy.OwnerDocument.CreateTextNode("`t"), $element)
+        }
+    }
+    if ($Node.LocalName -in @('pre', 'code')) { return $copy.InnerText }
+    return $copy.InnerText.Trim([char[]] "`r`n")
+}
+
 function Invoke-InfoSysProbe {
     [CmdletBinding()]
     param(
@@ -77,6 +101,7 @@ function Invoke-InfoSysProbe {
             $reader = [Xml.XmlReader]::Create($stream, $settings)
             $doc = [Xml.XmlDocument]::new()
             $doc.XmlResolver = $null
+            $doc.PreserveWhitespace = $true
             try { $doc.Load($reader) } finally { $reader.Dispose(); $stream.Dispose() }
             $titleNode = $doc.SelectSingleNode('//*[local-name()="title"]')
             if ($null -eq $titleNode -or $titleNode.InnerText.Trim() -ine $Topic) { continue }
@@ -87,10 +112,10 @@ function Invoke-InfoSysProbe {
             }
             $tables = @($article.SelectNodes('.//*[local-name()="table"]') | ForEach-Object {
                 @{ rows = @($_.SelectNodes('.//*[local-name()="tr"]') | ForEach-Object {
-                    @{ cells = @($_.SelectNodes('./*[local-name()="td" or local-name()="th"]') | ForEach-Object { $_.InnerText }) }
+                    @{ cells = @($_.SelectNodes('./*[local-name()="td" or local-name()="th"]') | ForEach-Object { ConvertFrom-InfoSysMarkup -Node $_ }) }
                 }) }
             })
-            $code = @($article.SelectNodes('.//*[local-name()="pre" or (local-name()="code" and not(ancestor::*[local-name()="pre"]))]') | ForEach-Object { $_.InnerText })
+            $code = @($article.SelectNodes('.//*[local-name()="pre" or (local-name()="code" and not(ancestor::*[local-name()="pre"]))]') | ForEach-Object { ConvertFrom-InfoSysMarkup -Node $_ })
             $links = @($article.SelectNodes('.//*[local-name()="a"][@href]') | ForEach-Object {
                 @{ href = $_.GetAttribute('href'); text = $_.InnerText }
             })
@@ -102,7 +127,7 @@ function Invoke-InfoSysProbe {
                 tableCount = $tables.Count; codeBlockCount = $code.Count; linkCount = $links.Count
             }
             if ($IncludeContent) {
-                $match.metadata = $metadata; $match.text = $article.InnerText
+                $match.metadata = $metadata; $match.text = ConvertFrom-InfoSysMarkup -Node $article
                 $match.tables = $tables; $match.code = $code; $match.links = $links
             }
             $matches += [pscustomobject] $match
