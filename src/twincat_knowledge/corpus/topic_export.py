@@ -113,7 +113,9 @@ def _write_records(
             for topic in topics:
                 count += 1
                 if count > max_topics:
-                    raise TopicExportBoundsError("topic count exceeds its supported bound")
+                    raise TopicExportBoundsError(
+                        "topic count exceeds its supported bound"
+                    )
                 if not isinstance(topic, Topic):
                     raise TopicExportValidationError(
                         "topics must contain only Topic models"
@@ -199,9 +201,13 @@ def _read_record(line: bytes) -> Topic:
     try:
         return Topic.model_validate_json(text)
     except (TypeError, ValueError) as exc:
-        raise TopicExportValidationError("topic export contains invalid topic JSON") from exc
+        raise TopicExportValidationError(
+            "topic export contains invalid topic JSON"
+        ) from exc
     except Exception as exc:
-        raise TopicExportValidationError("topic export contains invalid topic JSON") from exc
+        raise TopicExportValidationError(
+            "topic export contains invalid topic JSON"
+        ) from exc
 
 
 def read_topic_export(
@@ -230,14 +236,16 @@ def read_topic_export(
             seen_ids: set[str] = set()
             total = 0
             while True:
-                # max+2 distinguishes an overlong line from a permitted line
-                # with its one-byte LF, without allocating an unbounded buffer.
-                line = stream.readline(record_limit + 2)
+                # max+1 permits a record plus its one-byte LF. An overlong
+                # line is returned without that LF and is rejected below.
+                line = stream.readline(record_limit + 1)
                 if not line:
                     break
                 total += len(line)
                 if total > total_limit:
-                    raise TopicExportBoundsError("export exceeds its supported byte bound")
+                    raise TopicExportBoundsError(
+                        "export exceeds its supported byte bound"
+                    )
                 if len(line) > record_limit + 1 or (
                     len(line) == record_limit + 1 and not line.endswith(b"\n")
                 ):
@@ -250,7 +258,9 @@ def read_topic_export(
                 seen_ids.add(topic.id)
                 topics.append(topic)
                 if len(topics) > max_topic_count:
-                    raise TopicExportBoundsError("topic count exceeds its supported bound")
+                    raise TopicExportBoundsError(
+                        "topic count exceeds its supported bound"
+                    )
             return tuple(topics)
     except TopicExportError:
         raise
