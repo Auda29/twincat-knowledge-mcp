@@ -248,10 +248,10 @@ def _is_active(element: Element) -> bool:
 def _safe_content_root(root: Element) -> Element:
     """Select article content without treating head metadata as article text."""
 
-    for element in root.iter():
+    for element in _safe_elements(root):
         if _local_name(element.tag) == "article":
             return element
-    for element in root.iter():
+    for element in _safe_elements(root):
         if _local_name(element.tag) == "body":
             return element
     return root
@@ -420,7 +420,7 @@ def _entry_library(parts: list[str]) -> str | None:
 
 def _metadata(root: Element) -> tuple[InfoSysMetadata, ...]:
     values: list[InfoSysMetadata] = []
-    for element in root.iter():
+    for element in _safe_elements(root):
         if _local_name(element.tag) != "meta":
             continue
         attributes = tuple(
@@ -502,8 +502,23 @@ def _sections(root: Element) -> tuple[InfoSysSection, ...]:
         if not nested:
             selected.append((element, kind))
 
+    selected_by_id = {id(element): kind for element, kind in selected}
     sections: list[InfoSysSection] = []
-    for element, kind in selected:
+    ordinary_text: list[str] = []
+
+    def flush_ordinary_text() -> None:
+        if ordinary_text:
+            text = "".join(ordinary_text)
+            ordinary_text.clear()
+            if text.strip():
+                sections.append(InfoSysSection(kind="paragraph", text=text))
+
+    def append_ordinary_text(text: str | None) -> None:
+        if text is not None:
+            ordinary_text.append(text)
+
+    def append_selected(element: Element, kind: SectionKind) -> None:
+        flush_ordinary_text()
         if kind == "table":
             sections.append(InfoSysSection(kind=kind, rows=_table_rows(element)))
         elif kind == "code":
@@ -522,6 +537,45 @@ def _sections(root: Element) -> tuple[InfoSysSection, ...]:
             )
         else:
             sections.append(InfoSysSection(kind=kind, text=_render_inline(element)))
+
+    def walk(element: Element, *, is_root: bool = False) -> None:
+        selected_kind = selected_by_id.get(id(element))
+        if selected_kind is not None:
+            append_selected(element, selected_kind)
+            return
+
+        tag = _local_name(element.tag)
+        preserves_text = is_root or tag in {
+            "article",
+            "blockquote",
+            "dd",
+            "div",
+            "dl",
+            "dt",
+            "span",
+        }
+        block_wrapper = not is_root and tag in {
+            "article",
+            "blockquote",
+            "dd",
+            "div",
+            "dl",
+            "dt",
+        }
+        if block_wrapper:
+            flush_ordinary_text()
+        if preserves_text:
+            append_ordinary_text(element.text)
+        for child in list(element):
+            if id(child) in safe_ids:
+                walk(child)
+            if preserves_text:
+                append_ordinary_text(child.tail)
+        if block_wrapper:
+            flush_ordinary_text()
+
+    walk(root, is_root=True)
+    flush_ordinary_text()
     return tuple(sections)
 
 
@@ -575,7 +629,11 @@ def _topic_from_entry(
     content_root = _safe_content_root(root)
     metadata = _metadata(root)
     title_element = next(
-        (element for element in root.iter() if _local_name(element.tag) == "title"),
+        (
+            element
+            for element in _safe_elements(root)
+            if _local_name(element.tag) == "title"
+        ),
         None,
     )
     title = _render_inline(title_element).strip() if title_element is not None else ""
