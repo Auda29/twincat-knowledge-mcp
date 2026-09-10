@@ -6,7 +6,9 @@ import hashlib
 import json
 from collections.abc import Iterator
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
+from zipfile import ZIP_DEFLATED, ZipFile
 
 import pytest
 
@@ -23,7 +25,11 @@ from twincat_knowledge.corpus.topic_export import (
 from twincat_knowledge.domain.models import SourceSnapshot
 from twincat_knowledge.domain.provenance import SourceReference
 from twincat_knowledge.domain.topics import Section, Topic, TopicMetadata
-from twincat_knowledge.ingest.infosys import InfoSysSection, InfoSysTopic
+from twincat_knowledge.ingest.infosys import (
+    InfoSysReader,
+    InfoSysSection,
+    InfoSysTopic,
+)
 from twincat_knowledge.ingest.normalize import normalize_infosys
 
 
@@ -80,6 +86,14 @@ def _topic(topic_id: str = "topic-1") -> Topic:
     )
 
 
+def _archive(html: str) -> BytesIO:
+    payload = BytesIO()
+    with ZipFile(payload, "w", ZIP_DEFLATED) as archive:
+        archive.writestr("motion/1033/move.html", html)
+    payload.seek(0)
+    return payload
+
+
 def test_normalized_topics_round_trip_with_raw_sha(tmp_path: Path) -> None:
     raw = normalize_infosys(
         [
@@ -111,6 +125,33 @@ def test_normalized_topics_round_trip_with_raw_sha(tmp_path: Path) -> None:
     assert summary.bytes == path.stat().st_size
     assert summary.sha256 == hashlib.sha256(path.read_bytes()).hexdigest()
     assert read_topic_export(path) == raw
+
+
+def test_reader_normalizer_export_reload_preserves_real_synthetic_fixture(
+    tmp_path: Path,
+) -> None:
+    html = """<html xmlns="http://www.w3.org/1999/xhtml"><head>
+    <title>Move \N{SNOWMAN}</title>
+    <meta name="repeat" content="one" data-extra="a" />
+    <meta name="repeat" content="two" data-extra="b" />
+    </head><body><p>Before</p><pre class="language-st">x := 1;
+</pre><table><tr><td>Input</td></tr></table></body></html>"""
+    read_topics = InfoSysReader(
+        _archive(html), source_id="synthetic", snapshot_id="fixture-1"
+    ).read()
+    normalized = normalize_infosys(
+        read_topics,
+        [
+            _snapshot().model_copy(
+                update={"source_id": "synthetic", "snapshot_id": "fixture-1"}
+            )
+        ],
+    )
+    path = tmp_path / "reader-normalizer.jsonl"
+
+    write_topic_export(path, normalized)
+
+    assert read_topic_export(path) == normalized
 
 
 def test_export_is_exact_ordered_jsonl_and_empty_export_is_valid(
