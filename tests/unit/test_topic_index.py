@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import os
+import sqlite3
 from pathlib import Path
 
-from twincat_knowledge.corpus.topic_index import TopicIndex, create_topic_index
+import pytest
+
+from twincat_knowledge.corpus.topic_index import (
+    TopicIndex,
+    TopicIndexBoundsError,
+    TopicIndexPathError,
+    TopicIndexValidationError,
+    create_topic_index,
+)
 from twincat_knowledge.domain.provenance import SourceReference
 from twincat_knowledge.domain.topics import Section, Topic, TopicMetadata
 
@@ -97,3 +107,70 @@ def test_missing_id_returns_none_without_snapshot_fallback(tmp_path: Path) -> No
             is not None
         )
         assert index.get_topic("topic-1-other-snapshot") is None
+
+
+def test_create_rejects_existing_regular_file_without_modifying_it(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "already.sqlite"
+    path.write_bytes(b"not an index")
+
+    with pytest.raises(TopicIndexPathError):
+        create_topic_index(path, [_topic()])
+
+    assert path.read_bytes() == b"not an index"
+
+
+def test_create_rejects_existing_symlink_without_modifying_target(
+    tmp_path: Path,
+) -> None:
+    target = tmp_path / "target.sqlite"
+    target.write_bytes(b"existing")
+    path = tmp_path / "alias.sqlite"
+    path.symlink_to(target)
+
+    with pytest.raises(TopicIndexPathError):
+        create_topic_index(path, [_topic()])
+
+    assert target.read_bytes() == b"existing"
+    assert path.is_symlink()
+
+
+def test_create_enforces_topic_count_and_cleans_own_artifact(tmp_path: Path) -> None:
+    path = tmp_path / "bounded.sqlite"
+
+    with pytest.raises(TopicIndexBoundsError):
+        create_topic_index(path, (_topic(str(i)) for i in range(2)), max_topics=1)
+
+    assert not path.exists()
+    assert not path.with_name(path.name + "-journal").exists()
+    assert not path.with_name(path.name + "-wal").exists()
+    assert not path.with_name(path.name + "-shm").exists()
+
+
+def test_create_rejects_invalid_model_and_missing_parent_without_artifact(
+    tmp_path: Path,
+) -> None:
+    missing_parent = tmp_path / "missing" / "index.sqlite"
+
+    with pytest.raises(TopicIndexPathError):
+        create_topic_index(missing_parent, [_topic()])
+    with pytest.raises(TopicIndexValidationError):
+        create_topic_index(tmp_path / "invalid.sqlite", [object()])  # type: ignore[list-item]
+
+    assert not missing_parent.parent.exists()
+    assert not (tmp_path / "invalid.sqlite").exists()
+
+
+def test_create_enforces_json_and_search_byte_limits(tmp_path: Path) -> None:
+    with pytest.raises(TopicIndexBoundsError):
+        create_topic_index(
+            tmp_path / "json.sqlite", [_topic()], max_topic_json_bytes=1
+        )
+    with pytest.raises(TopicIndexBoundsError):
+        create_topic_index(
+            tmp_path / "search.sqlite", [_topic()], max_search_text_bytes=1
+        )
+
+    assert not (tmp_path / "json.sqlite").exists()
+    assert not (tmp_path / "search.sqlite").exists()

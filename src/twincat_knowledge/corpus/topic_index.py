@@ -1,7 +1,8 @@
-"""Local topic index; caller validates the enclosing package before serving."""
+"""Bounded, immutable SQLite topic index for caller-validated packages."""
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from collections.abc import Iterable
 from pathlib import Path
@@ -9,6 +10,42 @@ from types import TracebackType
 from typing import Self
 
 from twincat_knowledge.domain.topics import Topic
+
+SCHEMA_VERSION = 1
+MAX_TOPICS = 100_000
+MAX_TOPIC_JSON_BYTES = 1_048_576
+MAX_SEARCH_TEXT_BYTES = 1_048_576
+MAX_QUERY_BYTES = 512
+MAX_SEARCH_LIMIT = 20
+MAX_SEARCH_OFFSET = 100_000
+
+
+class TopicIndexError(RuntimeError):
+    """Base class for controlled topic-index failures."""
+
+
+class TopicIndexPathError(TopicIndexError):
+    """The output path is not a new file in an existing directory."""
+
+
+class TopicIndexValidationError(TopicIndexError, ValueError):
+    """A supplied topic or option has an invalid type or value."""
+
+
+class TopicIndexBoundsError(TopicIndexValidationError):
+    """A supplied count, text, query, or pagination value exceeds a limit."""
+
+
+class TopicIndexUnavailableError(TopicIndexError):
+    """The runtime cannot provide the required SQLite FTS5 feature."""
+
+
+class TopicIndexOpenError(TopicIndexError):
+    """An index could not be opened in read-only mode."""
+
+
+class TopicIndexSchemaError(TopicIndexError):
+    """An existing file is not a supported topic-index schema."""
 
 
 def _search_text(topic: Topic) -> str:
@@ -23,40 +60,228 @@ def _search_text(topic: Topic) -> str:
     return "\n".join(parts)
 
 
-def create_topic_index(path: Path, topics: Iterable[Topic]) -> int:
-    """Build an operator-owned index; not an agent-side import action."""
-    connection = sqlite3.connect(path)
+def _check_fts5() -> None:
+    """Fail explicitly when this Python's SQLite has no FTS5 support."""
+    connection: sqlite3.Connection | None = None
     try:
-        with connection:
-            connection.execute(
-                "CREATE TABLE topics(id TEXT PRIMARY KEY, payload TEXT NOT NULL)"
-            )
-            connection.execute(
-                "CREATE VIRTUAL TABLE search_text USING fts5(id UNINDEXED, body)"
-            )
-            count = 0
-            for topic in topics:
-                connection.execute(
-                    "INSERT INTO topics VALUES (?, ?)",
-                    (topic.id, topic.model_dump_json()),
-                )
-                connection.execute(
-                    "INSERT INTO search_text VALUES (?, ?)",
-                    (topic.id, _search_text(topic)),
-                )
-                count += 1
-        return count
+        connection = sqlite3.connect(":memory:")
+        connection.execute(
+            "CREATE VIRTUAL TABLE topic_index_fts5_probe USING fts5(body)"
+        )
+    except sqlite3.Error as exc:
+        raise TopicIndexUnavailableError(
+            "SQLite FTS5 is required to build/read a topic index; "
+            "install Python with SQLite compiled with FTS5 support"
+        ) from exc
     finally:
-        connection.close()
+        if connection is not None:
+            connection.close()
+
+
+def _check_bound(value: object, name: str, maximum: int) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TopicIndexValidationError(f"{name} must be an integer")
+    if value < 1 or value > maximum:
+        raise TopicIndexBoundsError(f"{name} must be between 1 and {maximum}")
+    return value
+
+
+def _utf8_size(value: str) -> int:
+    return len(value.encode("utf-8"))
+
+
+def _validate_text_size(value: str, name: str, maximum: int) -> None:
+    if _utf8_size(value) > maximum:
+        raise TopicIndexBoundsError(
+            f"{name} exceeds the {maximum}-byte UTF-8 limit"
+        )
+
+
+def _cleanup_owned_artifact(path: Path) -> None:
+    for candidate in (
+        path,
+        path.with_name(path.name + "-journal"),
+        path.with_name(path.name + "-wal"),
+        path.with_name(path.name + "-shm"),
+    ):
+        try:
+            candidate.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError:
+            # Preserve the original build failure; cleanup is best effort.
+            pass
+
+
+def create_topic_index(
+    path: Path,
+    topics: Iterable[Topic],
+    *,
+    max_topics: int = MAX_TOPICS,
+    max_topic_json_bytes: int = MAX_TOPIC_JSON_BYTES,
+    max_search_text_bytes: int = MAX_SEARCH_TEXT_BYTES,
+) -> int:
+    """Create one new index atomically; never replace an existing path."""
+    _check_fts5()
+    _check_bound(max_topics, "max_topics", MAX_TOPICS)
+    _check_bound(
+        max_topic_json_bytes, "max_topic_json_bytes", MAX_TOPIC_JSON_BYTES
+    )
+    _check_bound(
+        max_search_text_bytes, "max_search_text_bytes", MAX_SEARCH_TEXT_BYTES
+    )
+    output = Path(path)
+    if not output.parent.is_dir():
+        raise TopicIndexPathError("index parent directory must already exist")
+    if output.exists() or output.is_symlink():
+        raise TopicIndexPathError("index output path must not already exist")
+
+    owned = False
+    connection: sqlite3.Connection | None = None
+    try:
+        try:
+            descriptor = os.open(
+                output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
+            )
+            os.close(descriptor)
+            owned = True
+        except FileExistsError as exc:
+            raise TopicIndexPathError(
+                "index output path must not already exist"
+            ) from exc
+        connection = sqlite3.connect(output)
+        connection.isolation_level = None
+        connection.execute("BEGIN EXCLUSIVE")
+        connection.execute(
+            "CREATE TABLE index_meta "
+            "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO index_meta VALUES ('schema_version', ?)",
+            (str(SCHEMA_VERSION),),
+        )
+        connection.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+        connection.execute(
+            "CREATE TABLE topics ("
+            "id TEXT PRIMARY KEY, language TEXT NOT NULL, library TEXT NOT NULL, "
+            "source_snapshot_id TEXT NOT NULL, payload TEXT NOT NULL)"
+        )
+        connection.execute(
+            "CREATE VIRTUAL TABLE search_text USING fts5(id UNINDEXED, body)"
+        )
+
+        count = 0
+        for topic in topics:
+            if not isinstance(topic, Topic):
+                raise TopicIndexValidationError("topics must contain only Topic models")
+            count += 1
+            if count > max_topics:
+                raise TopicIndexBoundsError(
+                    f"topic count exceeds the {max_topics}-topic limit"
+                )
+            payload = topic.model_dump_json()
+            body = _search_text(topic)
+            _validate_text_size(payload, "topic JSON", max_topic_json_bytes)
+            _validate_text_size(body, "topic search text", max_search_text_bytes)
+            connection.execute(
+                "INSERT INTO topics VALUES (?, ?, ?, ?, ?)",
+                (
+                    topic.id,
+                    topic.language,
+                    topic.library,
+                    topic.source.snapshot_id,
+                    payload,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO search_text VALUES (?, ?)", (topic.id, body)
+            )
+        connection.execute("COMMIT")
+        return count
+    except Exception:
+        if connection is not None:
+            try:
+                connection.execute("ROLLBACK")
+            except sqlite3.Error:
+                pass
+        if owned:
+            _cleanup_owned_artifact(output)
+        raise
+    finally:
+        if connection is not None:
+            connection.close()
+
+
+def _readonly_uri(path: Path) -> str:
+    try:
+        absolute = path.expanduser().resolve(strict=True)
+    except OSError as exc:
+        raise TopicIndexOpenError(f"topic index does not exist: {path}") from exc
+    return f"{absolute.as_uri()}?mode=ro"
+
+
+def _validate_schema(connection: sqlite3.Connection) -> None:
+    try:
+        user_version = connection.execute("PRAGMA user_version").fetchone()[0]
+        meta_version = connection.execute(
+            "SELECT value FROM index_meta WHERE key = 'schema_version'"
+        ).fetchone()
+        topics_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(topics)")
+        }
+        search_kind = connection.execute(
+            "SELECT type FROM sqlite_master WHERE name = 'search_text'"
+        ).fetchone()
+    except sqlite3.Error as exc:
+        raise TopicIndexSchemaError(
+            "topic index schema is missing or malformed; rebuild the index"
+        ) from exc
+    if (
+        user_version != SCHEMA_VERSION
+        or meta_version is None
+        or meta_version[0] != str(SCHEMA_VERSION)
+        or topics_columns
+        != {"id", "language", "library", "source_snapshot_id", "payload"}
+        or search_kind != ("table",)
+    ):
+        raise TopicIndexSchemaError(
+            f"unsupported topic index schema; expected version {SCHEMA_VERSION}"
+        )
+
+
+def _configure_readonly(connection: sqlite3.Connection) -> None:
+    try:
+        connection.execute("PRAGMA query_only = ON")
+        query_only = connection.execute("PRAGMA query_only").fetchone()
+        connection.execute("PRAGMA trusted_schema = OFF")
+    except sqlite3.Error as exc:
+        raise TopicIndexUnavailableError(
+            "SQLite query_only/trusted_schema protections are unavailable"
+        ) from exc
+    if query_only != (1,):
+        raise TopicIndexUnavailableError("SQLite query_only protection could not be enabled")
 
 
 class TopicIndex:
     """Read-only access to an existing, caller-validated index."""
 
     def __init__(self, path: Path):
-        self._connection = sqlite3.connect(
-            path.absolute().as_uri() + "?mode=ro", uri=True
-        )
+        _check_fts5()
+        self._connection: sqlite3.Connection | None = None
+        try:
+            self._connection = sqlite3.connect(_readonly_uri(Path(path)), uri=True)
+            _configure_readonly(self._connection)
+            _validate_schema(self._connection)
+        except TopicIndexError:
+            if self._connection is not None:
+                self._connection.close()
+            raise
+        except (OSError, sqlite3.Error) as exc:
+            if self._connection is not None:
+                self._connection.close()
+            raise TopicIndexOpenError(
+                f"could not open topic index read-only: {path}"
+            ) from exc
 
     def __enter__(self) -> Self:
         return self
@@ -67,21 +292,93 @@ class TopicIndex:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        self._connection.close()
+        if self._connection is not None:
+            self._connection.close()
+            self._connection = None
+
+    def _connection_or_raise(self) -> sqlite3.Connection:
+        if self._connection is None:
+            raise TopicIndexError("topic index is closed")
+        return self._connection
 
     def get_topic(self, topic_id: str) -> Topic | None:
-        row = self._connection.execute(
+        if not isinstance(topic_id, str):
+            raise TopicIndexValidationError("topic_id must be a string")
+        row = self._connection_or_raise().execute(
             "SELECT payload FROM topics WHERE id = ?", (topic_id,)
         ).fetchone()
         return None if row is None else Topic.model_validate_json(row[0])
 
-    def search(self, query: str) -> tuple[Topic, ...]:
+    def search(
+        self,
+        query: str,
+        *,
+        language: str | None = None,
+        library: str | None = None,
+        source_snapshot_id: str | None = None,
+        limit: int = MAX_SEARCH_LIMIT,
+        offset: int = 0,
+    ) -> tuple[Topic, ...]:
+        if not isinstance(query, str):
+            raise TopicIndexValidationError("query must be a string")
+        if _utf8_size(query) > MAX_QUERY_BYTES:
+            raise TopicIndexBoundsError(
+                f"query exceeds the {MAX_QUERY_BYTES}-byte UTF-8 limit"
+            )
+        if "\x00" in query:
+            raise TopicIndexValidationError("query must not contain NUL")
+        if not isinstance(offset, int) or isinstance(offset, bool):
+            raise TopicIndexValidationError("offset must be an integer")
+        if offset < 0 or offset > MAX_SEARCH_OFFSET:
+            raise TopicIndexBoundsError(
+                f"offset must be between 0 and {MAX_SEARCH_OFFSET}"
+            )
+        _check_bound(limit, "limit", MAX_SEARCH_LIMIT)
+        filters: list[str] = []
+        values: list[str | int] = []
+        for column, value in (
+            ("language", language),
+            ("library", library),
+            ("source_snapshot_id", source_snapshot_id),
+        ):
+            if value is not None:
+                if not isinstance(value, str):
+                    raise TopicIndexValidationError(f"{column} must be a string")
+                if not value or _utf8_size(value) > MAX_QUERY_BYTES:
+                    raise TopicIndexBoundsError(f"{column} is empty or too large")
+                filters.append(f"t.{column} = ?")
+                values.append(value)
         if not query.strip():
             return ()
         literal = '"' + query.replace('"', '""') + '"'
-        rows = self._connection.execute(
-            "SELECT t.payload FROM search_text JOIN topics t ON t.id=search_text.id "
-            "WHERE search_text MATCH ? ORDER BY bm25(search_text), t.id LIMIT 20",
-            (literal,),
+        where = " AND ".join(filters)
+        if where:
+            where = " AND " + where
+        rows = self._connection_or_raise().execute(
+            "SELECT t.payload FROM search_text "
+            "JOIN topics AS t ON t.id = search_text.id "
+            "WHERE search_text MATCH ?" + where +
+            " ORDER BY bm25(search_text) ASC, t.id ASC LIMIT ? OFFSET ?",
+            (literal, *values, limit, offset),
         )
         return tuple(Topic.model_validate_json(row[0]) for row in rows)
+
+
+__all__ = [
+    "MAX_QUERY_BYTES",
+    "MAX_SEARCH_LIMIT",
+    "MAX_SEARCH_OFFSET",
+    "MAX_SEARCH_TEXT_BYTES",
+    "MAX_TOPIC_JSON_BYTES",
+    "MAX_TOPICS",
+    "SCHEMA_VERSION",
+    "TopicIndex",
+    "TopicIndexBoundsError",
+    "TopicIndexError",
+    "TopicIndexOpenError",
+    "TopicIndexPathError",
+    "TopicIndexSchemaError",
+    "TopicIndexUnavailableError",
+    "TopicIndexValidationError",
+    "create_topic_index",
+]
