@@ -27,7 +27,9 @@ are failed evidence, not deliverable artifacts.
 - Observed expected RED at the import assertion: missing corpus package.
 - Added a narrow ignore exception for `src/twincat_knowledge/corpus/`;
   operator corpus directories remain ignored.
-- Extended the installation test to direct wheel builds and sdist-to-wheel builds.
+- Initially parametrized direct and default builds, but both cases handed a wheel
+  to the installer. Independent review M-01 required explicit source-archive
+  installation and provenance assertions; see the correction below.
 - The first post-fix run reached the corpus import but failed loading Pydantic's
   native extension on the noexec `/tmp` mount. This was an environment failure,
   not a passing test. Use an executable workspace pytest `--basetemp` here.
@@ -42,6 +44,8 @@ From the integration worktree, run sequentially for VERSION=3.12 and 3.13:
 ```sh
 export UV_PROJECT_ENVIRONMENT=/absolute/external/venv-VERSION
 export UV_LINK_MODE=copy
+export TMPDIR=/absolute/executable/build-temp
+mkdir -p "$TMPDIR"
 uv sync --frozen --python VERSION --dev
 uv run --frozen --python VERSION python -m pytest -q tests --basetemp=/absolute/executable/test-temp-VERSION
 uv run --frozen --python VERSION ruff check src tests
@@ -63,4 +67,21 @@ and `twincat-packaging-final-pyVERSION` respectively.
 - No production MCP server, 15 knowledge tools, reader, search, host integration,
   retrieval evaluation, remote CI or release acceptance in this slice.
 - Installed model and CLI checks do not prove safe filesystem reads or networking.
-- The parent packaging correction has not received a separate independent review.
+- Independent review of `153d782` verified all four installed-artifact combinations
+  but requested M-01 test-gate changes. The correction below awaits re-review.
+
+## M-01: explicit sdist installation
+
+The installed distribution's `direct_url.json` now asserts the artifact suffix.
+Observed RED under Python 3.12: the sdist case recorded `.whl`, not `.tar.gz`
+(one failed test, exit 1). The corrected case builds with `uv build --sdist`,
+selects the sole `.tar.gz`, and installs it using `uv pip install --no-cache`.
+The direct wheel case remains separate. Both retain isolated installed imports,
+JSON-null roundtrip and real CLI checks from a foreign working directory.
+
+The first uncached installation attempt ran out of space in the 512 MiB `/tmp`
+mount (two failed E2E cases, 40 passed); it was not a product failure or GREEN.
+After setting TMPDIR to a dedicated workspace directory, the complete suite
+passed: CPython 3.12.13 **42 passed**, CPython 3.13.12 **42 passed**. Ruff check,
+format and strict mypy passed in both environments; diff check passed. No skips.
+Only test and report files changed; production source and package config did not.

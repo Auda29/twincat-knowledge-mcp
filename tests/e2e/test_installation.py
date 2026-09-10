@@ -56,7 +56,7 @@ def _run(
 
 
 @pytest.mark.parametrize(
-    "build_flags", [("--wheel",), ()], ids=["wheel", "sdist-wheel"]
+    "build_flags", [("--wheel",), ("--sdist",)], ids=["wheel", "sdist-wheel"]
 )
 def test_wheel_installs_without_source_checkout(
     tmp_path: Path, build_flags: tuple[str, ...]
@@ -82,8 +82,9 @@ def test_wheel_installs_without_source_checkout(
     )
     assert build.returncode == 0, build.stdout + build.stderr
 
-    wheels = sorted(dist.glob("*.whl"))
-    assert len(wheels) == 1
+    artifact_pattern = "*.whl" if build_flags == ("--wheel",) else "*.tar.gz"
+    artifacts = sorted(dist.glob(artifact_pattern))
+    assert len(artifacts) == 1
 
     create_venv = _run(
         [uv, "venv", "--python", sys.executable, venv],
@@ -95,13 +96,30 @@ def test_wheel_installs_without_source_checkout(
 
     python = _venv_python(venv)
     install = _run(
-        [uv, "pip", "install", "--python", python, wheels[0]],
+        [uv, "pip", "install", "--no-cache", "--python", python, artifacts[0]],
         cwd=foreign_cwd,
         env=env,
         timeout=180,
     )
     assert install.returncode == 0, install.stdout + install.stderr
     assert python.is_file()
+
+    artifact_origin = _run(
+        [
+            python,
+            "-I",
+            "-c",
+            "import importlib.metadata, json; "
+            "d = importlib.metadata.distribution('twincat-knowledge'); "
+            "print(json.loads(d.read_text('direct_url.json'))['url'])",
+        ],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert artifact_origin.returncode == 0, artifact_origin.stderr
+    expected_suffix = ".whl" if build_flags == ("--wheel",) else ".tar.gz"
+    assert artifact_origin.stdout.strip().endswith(expected_suffix)
 
     model_import = _run(
         [
