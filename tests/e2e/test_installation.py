@@ -185,6 +185,48 @@ def test_wheel_installs_without_source_checkout(
     assert str(operator_dir) not in inspection.stdout
     assert inspection.stderr == ""
 
+    normalization = _run(
+        [
+            python,
+            "-I",
+            "-c",
+            "import hashlib, sys; "
+            "from datetime import datetime, timezone; "
+            "from pathlib import Path; "
+            "import twincat_knowledge.ingest.normalize as module; "
+            "from twincat_knowledge.ingest.infosys import read_infosys; "
+            "from twincat_knowledge.domain.models import SourceSnapshot; "
+            "from twincat_knowledge.domain.topics import Topic; "
+            "assert Path(module.__file__).is_relative_to(Path(sys.prefix)); "
+            "p = Path(sys.argv[1]); "
+            "snapshot = SourceSnapshot(source_id='fixture', snapshot_id='v1', "
+            "imported_at=datetime(2026, 1, 1, tzinfo=timezone.utc), "
+            "language='en', content_hash=hashlib.sha256(p.read_bytes()).hexdigest(), "
+            "rights_reference='original synthetic test fixture', "
+            "parser_version='test'); "
+            "raw = read_infosys(p, source_id='fixture', snapshot_id='v1'); "
+            "topics = module.normalize_infosys(raw, (snapshot,)); "
+            "assert len(topics) == 1; "
+            "t = topics[0]; "
+            "assert t.title == 'Synthetic'; "
+            "assert t.source.locator == 'sample/1033/1.html'; "
+            "assert t.source.content_hash == raw[0].source.content_hash; "
+            "assert t.sections[0].code == raw[0].sections[0].code; "
+            "assert t.sections[0].source.section_id == t.sections[0].id; "
+            "assert t.sections[0].source.snapshot_id == 'v1'; "
+            "assert Topic.model_validate_json(t.model_dump_json()) == t; "
+            "assert snapshot.applicability == 'unknown'; "
+            "print('installed normalization verified')",
+            source,
+        ],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert normalization.returncode == 0, normalization.stderr
+    assert normalization.stdout.strip() == "installed normalization verified"
+    assert normalization.stderr == ""
+
     config_path = operator_dir / "config.toml"
     init = _run(
         [*_console_command(python, console_script), "init", "--config", config_path],

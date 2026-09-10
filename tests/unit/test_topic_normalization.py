@@ -90,9 +90,7 @@ def test_normalization_is_deterministic_immutable_and_json_roundtrips() -> None:
 def test_snapshot_language_and_library_variants_are_not_merged_by_title() -> None:
     topics = [
         _topic(locator="alpha/1033/same.html", library="alpha"),
-        _topic(
-            locator="beta/1033/same.html", library="beta", snapshot_id="snapshot-2"
-        ),
+        _topic(locator="beta/1033/same.html", library="beta", snapshot_id="snapshot-2"),
         _topic(
             locator="alpha/1031/same.html",
             language="de",
@@ -117,8 +115,7 @@ def test_snapshot_language_and_library_variants_are_not_merged_by_title() -> Non
     }
 
 
-def test_payloads_and_untrusted_references_are_preserved_exactly_with_section_sources(
-) -> None:
+def test_exact_payloads_and_references_preserve_section_sources() -> None:
     sections = (
         InfoSysSection(kind="paragraph", text="  exact paragraph\n"),
         InfoSysSection(kind="code", code="  x := 1;\n\n", language="st"),
@@ -156,8 +153,9 @@ def test_payloads_and_untrusted_references_are_preserved_exactly_with_section_so
         assert section.source.canonical_url == input_topic.source.canonical_url
 
 
-def test_strict_input_and_normalized_models_reject_unknown_or_malformed_shapes(
-) -> None:
+def test_strict_input_and_normalized_models_reject_unknown_or_malformed_shapes() -> (
+    None
+):
     with pytest.raises(ValidationError):
         InfoSysTopic.model_validate(
             {

@@ -126,9 +126,7 @@ def normalize_infosys(
             input_topic.language,
         )
         if input_topic.source.language != input_topic.language:
-            raise TopicNormalizationError(
-                "topic source does not match topic language"
-            )
+            raise TopicNormalizationError("topic source does not match topic language")
         snapshot = source_snapshots.get(source_key)
         if snapshot is None:
             raise TopicNormalizationError(
