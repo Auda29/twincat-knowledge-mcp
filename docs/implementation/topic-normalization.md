@@ -46,6 +46,36 @@ resolved, or executed, and document text is never treated as instructions.
 applicability facts. Rights are not approved by normalization: the supplied
 snapshot's rights reference remains operator metadata.
 
+## Review remediation and verification
+
+Public `Topic` and `Section` constructors and JSON validation enforce consistent
+provenance, not merely immutable field types. Section IDs must match their source
+section IDs. A topic has an article-level source, matching language and original
+help ID; every section must have identical shared source fields, and duplicate
+section IDs are rejected. A supplied source title must match the topic title;
+`None` remains unknown and is not replaced with an inferred title.
+
+`TopicMetadata` preserves reader metadata names, values, attributes, order and
+repetitions as uninterpreted evidence. Conflicting version strings do not become
+validated applicability facts. Metadata is covered by the enclosing article's
+source hash/locator; normalization neither verifies that hash nor interprets the
+claims. The domain models remain independent of the InfoSys adapter.
+
+Independent-review regression evidence:
+
+- M-01 public provenance boundary: 13 failing JSON regressions before correction;
+  then 22 focused tests passed, including the existing normalization suite.
+- M-02 metadata preservation: one failing reader-to-normalizer regression before
+  adding `TopicMetadata`; then 23 focused tests passed.
+- L-01 title disagreement: two failing public-boundary regressions before
+  correction; an absent-title compatibility case already passed and remains valid.
+- Final new regressions: 17 passed.
+- Full suite: 107 passed on CPython 3.12.10 and 3.13.12, including independent
+  wheel and sdist installation with `python -I` in a foreign working directory,
+  installed-module location checks and reader/normalizer/JSON roundtrips.
+- Ruff check, format check and mypy passed. Independent follow-up review remains
+  required; these coordinator tests are not an approval.
+
 ## Deliberate non-scope
 
 This is only the bounded normalization boundary. It adds no importer, crawler,

@@ -9,7 +9,7 @@ from typing import Final
 
 from twincat_knowledge.domain.models import SourceSnapshot
 from twincat_knowledge.domain.provenance import SourceReference
-from twincat_knowledge.domain.topics import Section, Topic
+from twincat_knowledge.domain.topics import Section, Topic, TopicMetadata
 from twincat_knowledge.ingest.infosys import InfoSysSection, InfoSysTopic
 
 DEFAULT_MAX_TOPICS: Final = 100_000
@@ -139,6 +139,12 @@ def normalize_infosys(
         ):
             raise TopicNormalizationError("topic source does not match snapshot")
 
+        if (
+            input_topic.source.title is not None
+            and input_topic.source.title != input_topic.title
+        ):
+            raise TopicNormalizationError("topic title and source.title disagree")
+
         original_topic_id = input_topic.topic_id
         source_topic_id = input_topic.source.topic_id
         if (
@@ -178,6 +184,10 @@ def normalize_infosys(
                 library=input_topic.library,
                 language=input_topic.language,
                 source=normalized_source,
+                metadata=tuple(
+                    TopicMetadata.model_validate(item.model_dump())
+                    for item in input_topic.metadata
+                ),
                 sections=sections,
                 image_refs=input_topic.image_refs,
                 help_ids=input_topic.help_ids,
