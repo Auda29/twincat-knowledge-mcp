@@ -122,7 +122,8 @@ def create_topic_index(
             staging, topics, max_topics, max_topic_json_bytes, max_search_text_bytes
         )
         staging.chmod(0o600)
-        with staging.open("rb") as handle:
+        # Windows CRT _commit (os.fsync) requires a writable descriptor.
+        with staging.open("r+b") as handle:
             os.fsync(handle.fileno())
         try:
             # Same-filesystem hard link is atomic and refuses an existing target.
