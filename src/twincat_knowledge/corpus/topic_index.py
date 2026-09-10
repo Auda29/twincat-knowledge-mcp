@@ -92,9 +92,7 @@ def _utf8_size(value: str) -> int:
 
 def _validate_text_size(value: str, name: str, maximum: int) -> None:
     if _utf8_size(value) > maximum:
-        raise TopicIndexBoundsError(
-            f"{name} exceeds the {maximum}-byte UTF-8 limit"
-        )
+        raise TopicIndexBoundsError(f"{name} exceeds the {maximum}-byte UTF-8 limit")
 
 
 def _cleanup_owned_artifact(path: Path) -> None:
@@ -124,12 +122,8 @@ def create_topic_index(
     """Create one new index atomically; never replace an existing path."""
     _check_fts5()
     _check_bound(max_topics, "max_topics", MAX_TOPICS)
-    _check_bound(
-        max_topic_json_bytes, "max_topic_json_bytes", MAX_TOPIC_JSON_BYTES
-    )
-    _check_bound(
-        max_search_text_bytes, "max_search_text_bytes", MAX_SEARCH_TEXT_BYTES
-    )
+    _check_bound(max_topic_json_bytes, "max_topic_json_bytes", MAX_TOPIC_JSON_BYTES)
+    _check_bound(max_search_text_bytes, "max_search_text_bytes", MAX_SEARCH_TEXT_BYTES)
     output = Path(path)
     if not output.parent.is_dir():
         raise TopicIndexPathError("index parent directory must already exist")
@@ -140,11 +134,9 @@ def create_topic_index(
     connection: sqlite3.Connection | None = None
     try:
         try:
-            descriptor = os.open(
-                output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600
-            )
-            os.close(descriptor)
+            descriptor = os.open(output, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
             owned = True
+            os.close(descriptor)
         except FileExistsError as exc:
             raise TopicIndexPathError(
                 "index output path must not already exist"
@@ -153,8 +145,7 @@ def create_topic_index(
         connection.isolation_level = None
         connection.execute("BEGIN EXCLUSIVE")
         connection.execute(
-            "CREATE TABLE index_meta "
-            "(key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+            "CREATE TABLE index_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
         )
         connection.execute(
             "INSERT INTO index_meta VALUES ('schema_version', ?)",
@@ -198,7 +189,7 @@ def create_topic_index(
             )
         connection.execute("COMMIT")
         return count
-    except Exception:
+    except BaseException:
         if connection is not None:
             try:
                 connection.execute("ROLLBACK")
@@ -215,7 +206,7 @@ def create_topic_index(
 def _readonly_uri(path: Path) -> str:
     try:
         absolute = path.expanduser().resolve(strict=True)
-    except OSError as exc:
+    except (OSError, RuntimeError) as exc:
         raise TopicIndexOpenError(f"topic index does not exist: {path}") from exc
     return f"{absolute.as_uri()}?mode=ro"
 
@@ -232,6 +223,9 @@ def _validate_schema(connection: sqlite3.Connection) -> None:
         search_kind = connection.execute(
             "SELECT type FROM sqlite_master WHERE name = 'search_text'"
         ).fetchone()
+        search_sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'search_text'"
+        ).fetchone()
     except sqlite3.Error as exc:
         raise TopicIndexSchemaError(
             "topic index schema is missing or malformed; rebuild the index"
@@ -243,6 +237,8 @@ def _validate_schema(connection: sqlite3.Connection) -> None:
         or topics_columns
         != {"id", "language", "library", "source_snapshot_id", "payload"}
         or search_kind != ("table",)
+        or search_sql is None
+        or "using fts5" not in search_sql[0].lower()
     ):
         raise TopicIndexSchemaError(
             f"unsupported topic index schema; expected version {SCHEMA_VERSION}"
@@ -254,12 +250,15 @@ def _configure_readonly(connection: sqlite3.Connection) -> None:
         connection.execute("PRAGMA query_only = ON")
         query_only = connection.execute("PRAGMA query_only").fetchone()
         connection.execute("PRAGMA trusted_schema = OFF")
+        trusted_schema = connection.execute("PRAGMA trusted_schema").fetchone()
     except sqlite3.Error as exc:
         raise TopicIndexUnavailableError(
             "SQLite query_only/trusted_schema protections are unavailable"
         ) from exc
-    if query_only != (1,):
-        raise TopicIndexUnavailableError("SQLite query_only protection could not be enabled")
+    if query_only != (1,) or trusted_schema != (0,):
+        raise TopicIndexUnavailableError(
+            "SQLite query_only/trusted_schema protections could not be enabled"
+        )
 
 
 class TopicIndex:
@@ -304,9 +303,11 @@ class TopicIndex:
     def get_topic(self, topic_id: str) -> Topic | None:
         if not isinstance(topic_id, str):
             raise TopicIndexValidationError("topic_id must be a string")
-        row = self._connection_or_raise().execute(
-            "SELECT payload FROM topics WHERE id = ?", (topic_id,)
-        ).fetchone()
+        row = (
+            self._connection_or_raise()
+            .execute("SELECT payload FROM topics WHERE id = ?", (topic_id,))
+            .fetchone()
+        )
         return None if row is None else Topic.model_validate_json(row[0])
 
     def search(
@@ -357,8 +358,9 @@ class TopicIndex:
         rows = self._connection_or_raise().execute(
             "SELECT t.payload FROM search_text "
             "JOIN topics AS t ON t.id = search_text.id "
-            "WHERE search_text MATCH ?" + where +
-            " ORDER BY bm25(search_text) ASC, t.id ASC LIMIT ? OFFSET ?",
+            "WHERE search_text MATCH ?"
+            + where
+            + " ORDER BY bm25(search_text) ASC, t.id ASC LIMIT ? OFFSET ?",
             (literal, *values, limit, offset),
         )
         return tuple(Topic.model_validate_json(row[0]) for row in rows)

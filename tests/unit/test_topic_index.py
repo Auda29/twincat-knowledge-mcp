@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-import os
 import sqlite3
 from pathlib import Path
 
 import pytest
 
+import twincat_knowledge.corpus.topic_index as topic_index
 from twincat_knowledge.corpus.topic_index import (
     TopicIndex,
     TopicIndexBoundsError,
+    TopicIndexOpenError,
     TopicIndexPathError,
+    TopicIndexSchemaError,
+    TopicIndexUnavailableError,
     TopicIndexValidationError,
     create_topic_index,
 )
@@ -164,9 +167,7 @@ def test_create_rejects_invalid_model_and_missing_parent_without_artifact(
 
 def test_create_enforces_json_and_search_byte_limits(tmp_path: Path) -> None:
     with pytest.raises(TopicIndexBoundsError):
-        create_topic_index(
-            tmp_path / "json.sqlite", [_topic()], max_topic_json_bytes=1
-        )
+        create_topic_index(tmp_path / "json.sqlite", [_topic()], max_topic_json_bytes=1)
     with pytest.raises(TopicIndexBoundsError):
         create_topic_index(
             tmp_path / "search.sqlite", [_topic()], max_search_text_bytes=1
@@ -174,3 +175,104 @@ def test_create_enforces_json_and_search_byte_limits(tmp_path: Path) -> None:
 
     assert not (tmp_path / "json.sqlite").exists()
     assert not (tmp_path / "search.sqlite").exists()
+
+
+def test_search_filters_and_pagination_are_stable(tmp_path: Path) -> None:
+    path = tmp_path / "filtered.sqlite"
+    topics = [
+        _topic("b", language="en", library="motion", snapshot_id="snap-a"),
+        _topic("a", language="en", library="motion", snapshot_id="snap-a"),
+        _topic("c", language="de", library="motion", snapshot_id="snap-b"),
+        _topic("d", language="en", library="io", snapshot_id="snap-a"),
+    ]
+    create_topic_index(path, topics)
+
+    with TopicIndex(path) as index:
+        assert tuple(topic.id for topic in index.search("absolute")) == (
+            "a",
+            "b",
+            "c",
+            "d",
+        )
+        assert tuple(
+            topic.id
+            for topic in index.search(
+                "absolute", language="en", library="motion", source_snapshot_id="snap-a"
+            )
+        ) == ("a", "b")
+        assert tuple(
+            topic.id for topic in index.search("absolute", limit=1, offset=1)
+        ) == ("b",)
+
+
+def test_search_rejects_unbounded_query_and_pagination(tmp_path: Path) -> None:
+    path = tmp_path / "limits.sqlite"
+    create_topic_index(path, [_topic()])
+
+    with TopicIndex(path) as index:
+        with pytest.raises(TopicIndexBoundsError):
+            index.search("x" * 513)
+        with pytest.raises(TopicIndexBoundsError):
+            index.search("x", limit=21)
+        with pytest.raises(TopicIndexBoundsError):
+            index.search("x", offset=100_001)
+        with pytest.raises(TopicIndexValidationError):
+            index.search("x", limit=True)  # type: ignore[arg-type]
+
+
+def test_search_treats_fts_grammar_as_literal_text(tmp_path: Path) -> None:
+    path = tmp_path / "literal.sqlite"
+    create_topic_index(
+        path,
+        [_topic("alpha", title="alpha"), _topic("beta", title="beta")],
+    )
+
+    with TopicIndex(path) as index:
+        assert index.search('alpha" OR beta') == ()
+
+
+def test_reader_rejects_missing_and_malformed_indexes(tmp_path: Path) -> None:
+    with pytest.raises(TopicIndexOpenError):
+        TopicIndex(tmp_path / "missing.sqlite")
+
+    malformed = tmp_path / "malformed.sqlite"
+    with sqlite3.connect(malformed) as connection:
+        connection.execute("CREATE TABLE anything(value TEXT)")
+    with pytest.raises(TopicIndexSchemaError):
+        TopicIndex(malformed)
+
+
+def test_reader_schema_version_is_explicit_and_read_only_without_sidecars(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "safe # index.sqlite"
+    create_topic_index(path, [_topic()])
+    before = path.read_bytes()
+    before_names = {entry.name for entry in tmp_path.iterdir()}
+
+    with TopicIndex(path) as index:
+        assert index._connection is not None
+        assert index._connection.execute("PRAGMA query_only").fetchone() == (1,)
+        assert index._connection.execute("PRAGMA trusted_schema").fetchone() == (0,)
+        with pytest.raises(sqlite3.OperationalError):
+            index._connection.execute("CREATE TABLE forbidden(value TEXT)")
+
+    assert path.read_bytes() == before
+    assert {entry.name for entry in tmp_path.iterdir()} == before_names
+
+
+def test_fts5_unavailability_is_actionable_and_leaves_no_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "no-fts5.sqlite"
+
+    def unavailable() -> None:
+        raise TopicIndexUnavailableError(
+            "SQLite FTS5 is required to build/read a topic index"
+        )
+
+    monkeypatch.setattr(topic_index, "_check_fts5", unavailable)
+    with pytest.raises(TopicIndexUnavailableError, match="FTS5"):
+        create_topic_index(path, [_topic()])
+
+    assert not path.exists()
