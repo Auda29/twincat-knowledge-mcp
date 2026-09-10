@@ -87,3 +87,24 @@ Final combined verification: 23 export tests and 151 full tests passed, the latt
 on both CPython 3.12.10 and 3.13.12. Ruff check and mypy passed. These are real
 coordinator reruns, not an independent approval. Dedicated installed-export and
 native CI checks plus independent review remain open at this checkpoint.
+
+## Independent review follow-up
+
+The initial independent review at `d77ddfd` identified two defects: FIFO inputs
+could block in open, and caller iterators could propagate arbitrary text through
+our exception classes. Both were reproduced before correction:
+
+- Special-file tests: two real FIFO subprocess timeouts (including a regular-file
+  swap after stat) and acceptance of the null device. The reader now requires a
+  regular file before open and on the opened descriptor, uses nonblocking open
+  on POSIX, and closes rejected descriptors. FIFO tests are POSIX-specific; the
+  device-file rejection test also runs on Windows. This is not a hard deadline
+  for network-filesystem I/O.
+- Iterator tests: four leaked-error regressions across `iter`/`next` and base/
+  bounds exceptions. A narrow caller boundary now emits a generic error with
+  suppressed exception chaining, retaining internal validation classifications.
+  Tests also verify no partial publication or owned staging remains.
+
+Coordinator verification after fixes: 30 focused export tests, 158 full tests
+on each of Python 3.12.10 and 3.13.12, Ruff check/format, and mypy passed.
+Independent follow-up and native CI for this production delta remain open.

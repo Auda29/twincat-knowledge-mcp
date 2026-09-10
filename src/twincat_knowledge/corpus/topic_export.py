@@ -4,11 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import os
+import stat
 import tempfile
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import BinaryIO, Final
 
 from twincat_knowledge.domain.topics import Topic
 
@@ -97,6 +98,23 @@ def _record_bytes(topic: Topic) -> bytes:
         raise TopicExportValidationError("topic serialization failed") from exc
 
 
+def _caller_topics(topics: Iterable[Topic]) -> Iterator[Topic]:
+    # Caller code may raise our own exception types with untrusted messages.
+    # Isolate iter()/next() so internal validation errors retain classification.
+    try:
+        iterator = iter(topics)
+    except Exception:
+        raise TopicExportError("topic iterator failed") from None
+    while True:
+        try:
+            topic = next(iterator)
+        except StopIteration:
+            return
+        except Exception:
+            raise TopicExportError("topic iterator failed") from None
+        yield topic
+
+
 def _write_records(
     staging: Path,
     topics: Iterable[Topic],
@@ -110,7 +128,7 @@ def _write_records(
     seen_ids: set[str] = set()
     try:
         with staging.open("xb") as stream:
-            for topic in topics:
+            for topic in _caller_topics(topics):
                 count += 1
                 if count > max_topics:
                     raise TopicExportBoundsError(
@@ -210,6 +228,28 @@ def _read_record(line: bytes) -> Topic:
         ) from exc
 
 
+def _open_regular_export(path: Path, total_limit: int) -> BinaryIO:
+    # Check both the path and the descriptor. Nonblocking open prevents a
+    # regular-file -> FIFO swap between stat and open from hanging on POSIX.
+    metadata = path.stat()
+    if not stat.S_ISREG(metadata.st_mode):
+        raise TopicExportPathError("topic export must be a regular file")
+    if metadata.st_size > total_limit:
+        raise TopicExportBoundsError("export exceeds its supported byte bound")
+    flags = os.O_RDONLY | getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_BINARY", 0)
+    descriptor = os.open(path, flags)
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise TopicExportPathError("topic export must be a regular file")
+        if metadata.st_size > total_limit:
+            raise TopicExportBoundsError("export exceeds its supported byte bound")
+        return os.fdopen(descriptor, "rb")
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
 def read_topic_export(
     path: Path,
     *,
@@ -229,9 +269,7 @@ def read_topic_export(
     try:
         # This preflight is only an early rejection. Incremental accounting
         # below remains authoritative if a file grows after stat().
-        if input_path.stat().st_size > total_limit:
-            raise TopicExportBoundsError("export exceeds its supported byte bound")
-        with input_path.open("rb") as stream:
+        with _open_regular_export(input_path, total_limit) as stream:
             topics: list[Topic] = []
             seen_ids: set[str] = set()
             total = 0

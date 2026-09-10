@@ -377,3 +377,79 @@ def test_embedded_feff_is_content_not_a_file_bom(tmp_path):
     path = tmp_path / "unicode.jsonl"
     write_topic_export(path, (topic,))
     assert read_topic_export(path) == (topic,)
+
+
+@pytest.mark.parametrize("swap_after_stat", [False, True])
+def test_fifo_input_is_rejected_without_blocking(tmp_path, swap_after_stat):
+    import os
+    import subprocess
+    import sys
+
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("POSIX FIFO regression; device-file check is separate")
+    path = tmp_path / "input.jsonl"
+    script = r"""
+import os, sys
+from pathlib import Path
+from twincat_knowledge.corpus.topic_export import read_topic_export, TopicExportError
+p = Path(sys.argv[1])
+if sys.argv[2] == 'True':
+    p.write_bytes(b'')
+    original_stat = Path.stat
+    swapped = False
+    def swap(self, *args, **kwargs):
+        global swapped
+        result = original_stat(self, *args, **kwargs)
+        if self == p and not swapped:
+            swapped = True
+            self.unlink()
+            os.mkfifo(self)
+        return result
+    Path.stat = swap
+else:
+    os.mkfifo(p)
+try:
+    read_topic_export(p)
+except TopicExportError:
+    print('special file rejected')
+else:
+    raise AssertionError('special file accepted')
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(path), str(swap_after_stat)],
+        capture_output=True,
+        text=True,
+        timeout=3,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "special file rejected"
+
+
+def test_device_input_is_not_an_empty_export():
+    import os
+
+    with pytest.raises(TopicExportError):
+        read_topic_export(Path(os.devnull))
+
+
+@pytest.mark.parametrize("during_iter", [False, True])
+@pytest.mark.parametrize("exception_class", [TopicExportError, TopicExportBoundsError])
+def test_caller_domain_exceptions_are_sanitized(tmp_path, during_iter, exception_class):
+    import traceback
+
+    secret = "operator-private-path-and-record"
+
+    class FaultyTopics:
+        def __iter__(self):
+            if during_iter:
+                raise exception_class(secret)
+            return self
+
+        def __next__(self):
+            raise exception_class(secret)
+
+    with pytest.raises(TopicExportError) as caught:
+        write_topic_export(tmp_path / "output.jsonl", FaultyTopics())
+    assert str(caught.value) == "topic iterator failed"
+    assert secret not in "".join(traceback.format_exception(caught.value))
+    assert list(tmp_path.iterdir()) == []
