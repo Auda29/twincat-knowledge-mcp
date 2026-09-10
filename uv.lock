@@ -856,6 +856,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "mcp" },
+    { name = "pydantic" },
 ]
 
 [package.dev-dependencies]
@@ -866,7 +867,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "mcp", specifier = "==2.2.0" }]
+requires-dist = [
+    { name = "mcp", specifier = "==2.2.0" },
+    { name = "pydantic", specifier = ">=2.13.5,<3" },
+]
 
 [package.metadata.requires-dev]
 dev = [

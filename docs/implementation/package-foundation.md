@@ -16,7 +16,12 @@ twincat-knowledge doctor --config <config.toml> [--json]
 `init` creates a small TOML configuration atomically. Existing regular files,
 directories, and symlinks are never replaced. `doctor` emits only statuses and
 generic details: it checks Python support, the exact `mcp==2.2.0` distribution,
-SQLite FTS5, and whether the configured corpus directory exists. It never
+SQLite FTS5, and whether the configured corpus directory exists. Directory
+existence is **not** corpus validation: an existing directory is reported as
+`unverified` and keeps the overall status `not_ready` until validation exists.
+Malformed TOML and a non-string `corpus` value are configuration errors. A
+relative `paths.corpus` is resolved relative to the directory containing the
+configuration file, not relative to the process working directory. It never
 serializes the TOML document, secret values, or configured paths.
 
 ## Development
@@ -33,11 +38,12 @@ uv run ruff format --check .
 uv run mypy src
 ```
 
-The wheel test serializes build and installation through
-`/home/hermes/workspace/.hermes/twincat-build.lock`, builds a PEP 517 wheel,
-installs it into a fresh non-editable Python 3.13 environment, and invokes
-`python -m twincat_knowledge --version` from an unrelated working directory
-with `PYTHONPATH` removed.
+The wheel test builds a PEP 517 wheel, installs it into a fresh non-editable
+environment using the test runtime, and invokes both the installed console
+entry point and `python -m twincat_knowledge` from an unrelated working
+directory with `PYTHONPATH` removed. It also exercises installed `init` and
+`doctor`. Shared build/install resource coordination belongs to the external
+test runner, not to the product test.
 
 The checks performed here are Linux checks. They do not constitute Windows
 acceptance, MCP protocol compliance, corpus coverage, or a real Beckhoff data

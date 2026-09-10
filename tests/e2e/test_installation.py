@@ -1,39 +1,58 @@
 from __future__ import annotations
 
-import contextlib
-import fcntl
+import json
 import os
 import shutil
 import subprocess
-import time
+import sys
+import tomllib
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
-LOCK_PATH = Path("/home/hermes/workspace/.hermes/twincat-build.lock")
 
 
-@contextlib.contextmanager
-def build_lock():
-    LOCK_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with LOCK_PATH.open("w", encoding="utf-8") as handle:
-        try:
-            deadline = time.monotonic() + 30
-            while True:
-                try:
-                    fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                    break
-                except BlockingIOError as exc:
-                    if time.monotonic() >= deadline:
-                        raise RuntimeError("build lock is busy") from exc
-                    time.sleep(0.1)
-        except OSError as exc:
-            raise RuntimeError("build lock could not be acquired") from exc
-        try:
-            yield
-        finally:
-            fcntl.flock(handle, fcntl.LOCK_UN)
+def _venv_python(venv: Path) -> Path:
+    if os.name == "nt":
+        return venv / "Scripts" / "python.exe"
+    return venv / "bin" / "python"
+
+
+def _venv_console_script(venv: Path, name: str) -> Path:
+    candidates = (
+        (venv / "Scripts" / f"{name}.exe", venv / "Scripts" / name)
+        if os.name == "nt"
+        else (venv / "bin" / name,)
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    pytest.fail(f"installed console entry point was not found: {name}")
+
+
+def _console_command(python: Path, script: Path) -> list[Path]:
+    # The test workspace can be mounted noexec on POSIX.  Running the
+    # generated entry-point script through its venv interpreter still proves
+    # the installed console entry point without depending on that mount flag.
+    return [script] if os.name == "nt" else [python, script]
+
+
+def _run(
+    args: list[str | Path], *, cwd: Path, env: dict[str, str], timeout: float
+) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(
+            [str(arg) for arg in args],
+            cwd=cwd,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired as exc:
+        pytest.fail(f"subprocess timed out after {timeout:g}s: {args}: {exc}")
 
 
 def test_wheel_installs_without_source_checkout(tmp_path: Path) -> None:
@@ -44,60 +63,87 @@ def test_wheel_installs_without_source_checkout(tmp_path: Path) -> None:
     dist = tmp_path / "dist"
     venv = tmp_path / "venv"
     foreign_cwd = tmp_path / "foreign-cwd"
+    operator_dir = tmp_path / "operator"
     dist.mkdir()
     foreign_cwd.mkdir()
+    operator_dir.mkdir()
 
-    with build_lock():
-        build = subprocess.run(
-            [uv, "build", "--wheel", "--out-dir", str(dist)],
-            cwd=ROOT,
-            env={
-                key: value for key, value in os.environ.items() if key != "PYTHONPATH"
-            },
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert build.returncode == 0, build.stdout + build.stderr
+    env = {key: value for key, value in os.environ.items() if key != "PYTHONPATH"}
+    build = _run(
+        [uv, "build", "--wheel", "--out-dir", dist],
+        cwd=ROOT,
+        env=env,
+        timeout=180,
+    )
+    assert build.returncode == 0, build.stdout + build.stderr
 
-        wheels = sorted(dist.glob("*.whl"))
-        assert len(wheels) == 1
+    wheels = sorted(dist.glob("*.whl"))
+    assert len(wheels) == 1
 
-        create_venv = subprocess.run(
-            [uv, "venv", "--python", "3.13", str(venv)],
-            cwd=tmp_path,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert create_venv.returncode == 0, create_venv.stdout + create_venv.stderr
+    create_venv = _run(
+        [uv, "venv", "--python", sys.executable, venv],
+        cwd=tmp_path,
+        env=env,
+        timeout=120,
+    )
+    assert create_venv.returncode == 0, create_venv.stdout + create_venv.stderr
 
-        python = venv / "bin" / "python"
-        install = subprocess.run(
-            [uv, "pip", "install", "--python", str(python), str(wheels[0])],
-            cwd=foreign_cwd,
-            env={
-                key: value for key, value in os.environ.items() if key != "PYTHONPATH"
-            },
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        assert install.returncode == 0, install.stdout + install.stderr
+    python = _venv_python(venv)
+    install = _run(
+        [uv, "pip", "install", "--python", python, wheels[0]],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=180,
+    )
+    assert install.returncode == 0, install.stdout + install.stderr
+    assert python.is_file()
 
-    result = subprocess.run(
+    console_script = _venv_console_script(venv, "twincat-knowledge")
+    version = _run(
+        [*_console_command(python, console_script), "--version"],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert version.returncode == 0, version.stderr
+    assert version.stdout.strip() == "twincat-knowledge 0.1.0"
+    assert version.stderr == ""
+
+    config_path = operator_dir / "config.toml"
+    init = _run(
+        [*_console_command(python, console_script), "init", "--config", config_path],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert init.returncode == 0, init.stdout + init.stderr
+    assert config_path.is_file()
+    assert isinstance(tomllib.loads(config_path.read_text(encoding="utf-8")), dict)
+
+    corpus_dir = operator_dir / "corpus"
+    corpus_dir.mkdir()
+    config_path.write_text("[paths]\ncorpus = 'corpus'\n", encoding="utf-8")
+    doctor = _run(
         [
-            str(venv / "bin" / "python"),
-            str(venv / "bin" / "twincat-knowledge"),
-            "--version",
+            python,
+            "-m",
+            "twincat_knowledge",
+            "doctor",
+            "--config",
+            config_path,
+            "--json",
         ],
         cwd=foreign_cwd,
-        env={key: value for key, value in os.environ.items() if key != "PYTHONPATH"},
-        capture_output=True,
-        text=True,
-        check=False,
+        env=env,
+        timeout=30,
     )
-
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip() == "twincat-knowledge 0.1.0"
-    assert result.stderr == ""
+    assert doctor.returncode == 1, doctor.stderr
+    assert (
+        tomllib.loads(config_path.read_text(encoding="utf-8"))["paths"]["corpus"]
+        == "corpus"
+    )
+    doctor_report = json.loads(doctor.stdout)
+    assert doctor_report["status"] == "not_ready"
+    assert doctor_report["checks"]["corpus"]["status"] == "unverified"
+    assert str(config_path) not in doctor.stdout
+    assert doctor.stderr == ""

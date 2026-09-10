@@ -57,6 +57,57 @@ def test_doctor_reports_missing_corpus_without_secrets(tmp_path: Path) -> None:
     assert str(corpus_path) not in rendered
 
 
+def test_doctor_does_not_approve_an_existing_empty_corpus_directory(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "config.toml"
+    (tmp_path / "corpus").mkdir()
+    config_path.write_text("[paths]\ncorpus = 'corpus'\n", encoding="utf-8")
+
+    report = diagnose_config(config_path)
+
+    assert report["status"] == "not_ready"
+    assert report["checks"]["corpus"]["status"] == "unverified"
+    assert "Approved corpus" not in report["checks"]["corpus"]["detail"]
+
+
+def test_doctor_resolves_relative_corpus_from_config_directory(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    config_dir = tmp_path / "operator"
+    config_dir.mkdir()
+    (config_dir / "corpus").mkdir()
+    config_path = config_dir / "config.toml"
+    config_path.write_text("[paths]\ncorpus = 'corpus'\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    report = diagnose_config(config_path)
+
+    assert report["checks"]["corpus"]["status"] == "unverified"
+    assert report["status"] == "not_ready"
+
+
+def test_doctor_rejects_malformed_toml(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("[paths\ncorpus = 'corpus'\n", encoding="utf-8")
+
+    report = diagnose_config(config_path)
+
+    assert report["status"] == "error"
+    assert report["checks"]["config"]["status"] == "error"
+
+
+def test_doctor_rejects_a_non_string_corpus_value(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text("[paths]\ncorpus = 42\n", encoding="utf-8")
+
+    report = diagnose_config(config_path)
+
+    assert report["status"] == "not_ready"
+    assert report["checks"]["corpus"]["status"] == "error"
+    assert "string" in report["checks"]["corpus"]["detail"]
+
+
 def test_init_creates_valid_toml_atomically(tmp_path: Path) -> None:
     config_path = tmp_path / "nested" / "config.toml"
 

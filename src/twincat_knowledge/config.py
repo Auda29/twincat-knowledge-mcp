@@ -79,13 +79,18 @@ def load_config(path: str | os.PathLike[str]) -> dict[str, Any]:
     return loaded
 
 
-def _corpus_config_value(config: dict[str, Any]) -> str:
+_INVALID_CORPUS_CONFIG = object()
+
+
+def _corpus_config_value(config: dict[str, Any]) -> object:
     paths = config.get("paths")
     if isinstance(paths, dict):
         corpus = paths.get("corpus", "")
-    else:
+    elif paths is None:
         corpus = config.get("corpus", "")
-    return corpus if isinstance(corpus, str) else ""
+    else:
+        return _INVALID_CORPUS_CONFIG
+    return corpus
 
 
 def _check_fts5() -> dict[str, str]:
@@ -117,8 +122,38 @@ def diagnose_config(path: str | os.PathLike[str]) -> dict[str, Any]:
             "checks": {"config": {"status": "error", "detail": str(exc)}},
         }
 
+    config_path = Path(path).expanduser()
     corpus_value = _corpus_config_value(config)
-    corpus_exists = bool(corpus_value) and Path(corpus_value).expanduser().is_dir()
+    corpus_check: dict[str, str]
+    if corpus_value is _INVALID_CORPUS_CONFIG:
+        corpus_check = {
+            "status": "error",
+            "detail": "paths must be a TOML table",
+        }
+    elif not isinstance(corpus_value, str):
+        corpus_check = {
+            "status": "error",
+            "detail": "paths.corpus must be a string",
+        }
+    elif not corpus_value:
+        corpus_check = {
+            "status": "missing",
+            "detail": "Corpus is not configured or missing",
+        }
+    else:
+        configured_corpus = Path(corpus_value).expanduser()
+        if not configured_corpus.is_absolute():
+            configured_corpus = config_path.absolute().parent / configured_corpus
+        if configured_corpus.is_dir():
+            corpus_check = {
+                "status": "unverified",
+                "detail": "Corpus directory exists but has not been validated",
+            }
+        else:
+            corpus_check = {
+                "status": "missing",
+                "detail": "Configured corpus directory is missing",
+            }
     checks: dict[str, dict[str, str]] = {
         "python": {
             "status": "ok" if sys.version_info >= (3, 12) else "error",
@@ -128,12 +163,7 @@ def diagnose_config(path: str | os.PathLike[str]) -> dict[str, Any]:
         },
         "sdk": _check_sdk(),
         "fts5": _check_fts5(),
-        "corpus": {
-            "status": "ok" if corpus_exists else "missing",
-            "detail": "Approved corpus is available"
-            if corpus_exists
-            else "Approved corpus is not configured or missing",
-        },
+        "corpus": corpus_check,
     }
     status = (
         "ok"
