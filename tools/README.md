@@ -80,7 +80,22 @@ redirection may overwrite an existing file, so check the destination first.
   uncompressed bytes. XML character count is also capped. ZIP central-directory
   parsing is not a sandbox for arbitrary untrusted huge archives; use installed
   vendor packages, not unknown downloads.
-- Link targets are recorded, not opened or resolved. No stylesheet/image rendering.
+- Help-ID targets are resolved through an in-memory index built after the complete
+  selected-library scan. `resolutionScope` explicitly identifies that archive prefix
+  and language; cross-library/package/locale lookup and anchors remain unsupported.
+  The default report adds `linkResolution` counters, without exposing link targets.
+  Counters count link occurrences, not unique destinations, and sum to `linkCount`.
+  With `-IncludeContent`, each link retains its original `href`/`text` and gains
+  `resolution` containing status, decoded Help-ID and an array of candidate files.
+  Empty link labels stay empty; target titles are separate metadata, not replacements.
+  Statuses: `resolved` (one file), `not-found-in-scope` (not a global missing-link
+  claim), `ambiguous` (all candidates retained, none selected), `external` (HTTP/S,
+  never requested), `unsupported` (other forms), `invalid` (rejected syntax).
+  Only canonical `ms-xhelp:///?Id=...` queries are resolved; extra parameters and
+  fragments are marked unsupported. Percent decoding happens once, ID lookup is
+  case-insensitive, and duplicate IDs within one file do not create false ambiguity.
+  No URI is executed or opened. File resolution does not certify target semantics.
+- No stylesheet/image rendering.
   Table spans, semantic warnings and code represented only by styled divs are not
   reconstructed. Structural counts do not prove full-fidelity extraction.
 - XML metadata versions do not establish applicability to a TwinCAT build.

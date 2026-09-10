@@ -64,6 +64,29 @@ function ConvertFrom-InfoSysMarkup {
     return $copy.InnerText.Trim([char[]] "`r`n")
 }
 
+function Resolve-InfoSysLink {
+    param([string] $Href, [hashtable] $Index)
+    $result = @{ status = 'unsupported'; helpId = $null; targets = @() }
+    if ([string]::IsNullOrEmpty($Href) -or $Href.Length -gt 4096 -or $Href -match '[\x00-\x20\x7f]') {
+        $result.status = 'invalid'
+        return $result
+    }
+    if ($Href -match '^https?://') { $result.status = 'external'; return $result }
+    if ($Href -match '^ms-xhelp:' -and $Href -notmatch '[&#]') { $result.status = 'invalid' }
+    if ($Href -match '^ms-xhelp:///\?Id=([^&#]+)$') {
+        $encoded = $Matches[1]
+        if ($encoded -match '%(?![0-9a-fA-F]{2})') { return $result }
+        $id = [Uri]::UnescapeDataString($encoded)
+        if ($id -match '[\x00-\x20\x7f]') { return $result }
+        $result.helpId = $id
+        $targets = @()
+        if ($Index.ContainsKey($id)) { $targets = @($Index[$id] | Sort-Object entry) }
+        $result.targets = $targets
+        $result.status = if ($targets.Count -eq 1) { 'resolved' } elseif ($targets.Count -gt 1) { 'ambiguous' } else { 'not-found-in-scope' }
+    }
+    return $result
+}
+
 function Invoke-InfoSysProbe {
     [CmdletBinding()]
     param(
@@ -78,6 +101,8 @@ function Invoke-InfoSysProbe {
     $zip = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
     try {
         $matches = @()
+        $topicIndex = @{}
+        $pendingLinks = @{}
         $scanned = 0
         $totalBytes = 0L
         $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -104,6 +129,15 @@ function Invoke-InfoSysProbe {
             $doc.PreserveWhitespace = $true
             try { $doc.Load($reader) } finally { $reader.Dispose(); $stream.Dispose() }
             $titleNode = $doc.SelectSingleNode('//*[local-name()="title"]')
+            $ids = @($doc.SelectNodes('//*[local-name()="head"]/*[local-name()="meta"][@name="Microsoft.Help.Id"]') |
+                ForEach-Object { $_.GetAttribute('content') } | Where-Object { $_ } | Sort-Object -Unique)
+            foreach ($id in $ids) {
+                if (-not $topicIndex.ContainsKey($id)) { $topicIndex[$id] = @() }
+                $topicIndex[$id] += [pscustomobject]@{
+                    entry = $entry.FullName
+                    title = $(if ($null -ne $titleNode) { $titleNode.InnerText.Trim() } else { $null })
+                }
+            }
             if ($null -eq $titleNode -or $titleNode.InnerText.Trim() -ine $Topic) { continue }
             $article = $doc.SelectSingleNode('//*[local-name()="article"]')
             if ($null -eq $article) { throw "Matched topic has no article element: $($entry.FullName)" }
@@ -130,7 +164,18 @@ function Invoke-InfoSysProbe {
                 $match.metadata = $metadata; $match.text = ConvertFrom-InfoSysMarkup -Node $article
                 $match.tables = $tables; $match.code = $code; $match.links = $links
             }
+            $pendingLinks[$entry.FullName] = $links
             $matches += [pscustomobject] $match
+        }
+        # Resolve only after the complete scan: archive order must not matter.
+        foreach ($match in $matches) {
+            $counts = [ordered]@{ resolved = 0; 'not-found-in-scope' = 0; ambiguous = 0; unsupported = 0; external = 0; invalid = 0 }
+            foreach ($link in @($pendingLinks[$match.entry])) {
+                $resolution = Resolve-InfoSysLink -Href $link.href -Index $topicIndex
+                $link.resolution = $resolution
+                $counts[$resolution.status]++
+            }
+            $match | Add-Member -NotePropertyName linkResolution -NotePropertyValue ([pscustomobject] $counts)
         }
         [pscustomobject]@{
             schemaVersion = 'infosys-probe-1'
@@ -138,8 +183,9 @@ function Invoke-InfoSysProbe {
             archive = [IO.Path]::GetFileName($ArchivePath)
             library = 'Tc2_MC2'; locale = $Locale; requestedTitle = $Topic
             scannedArticles = $scanned; includesContent = [bool] $IncludeContent
+            resolutionScope = $prefix
             matches = @($matches)
-            limitations = @('Diagnostic only; not an import acceptance.', 'Links are recorded, not resolved.', 'Metadata does not prove TwinCAT build compatibility.')
+            limitations = @('Diagnostic only; not an import acceptance.', 'Help-ID links resolve only within resolutionScope; no cross-library, cross-package or anchor validation.', 'Metadata does not prove TwinCAT build compatibility.')
         }
     } finally { $zip.Dispose() }
 }
