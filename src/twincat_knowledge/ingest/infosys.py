@@ -539,21 +539,21 @@ def _sections(root: Element) -> tuple[InfoSysSection, ...]:
             sections.append(InfoSysSection(kind=kind, text=_render_inline(element)))
 
     def walk(element: Element, *, is_root: bool = False) -> None:
+        if id(element) not in safe_ids or _local_name(element.tag) in {
+            "head",
+            "title",
+            "meta",
+        }:
+            return
         selected_kind = selected_by_id.get(id(element))
         if selected_kind is not None:
             append_selected(element, selected_kind)
             return
 
         tag = _local_name(element.tag)
-        preserves_text = is_root or tag in {
-            "article",
-            "blockquote",
-            "dd",
-            "div",
-            "dl",
-            "dt",
-            "span",
-        }
+        if tag == "br":
+            append_ordinary_text("\n")
+            return
         block_wrapper = not is_root and tag in {
             "article",
             "blockquote",
@@ -561,16 +561,15 @@ def _sections(root: Element) -> tuple[InfoSysSection, ...]:
             "div",
             "dl",
             "dt",
+            "section",
         }
         if block_wrapper:
             flush_ordinary_text()
-        if preserves_text:
-            append_ordinary_text(element.text)
+        append_ordinary_text(element.text)
         for child in list(element):
             if id(child) in safe_ids:
                 walk(child)
-            if preserves_text:
-                append_ordinary_text(child.tail)
+            append_ordinary_text(child.tail)
         if block_wrapper:
             flush_ordinary_text()
 

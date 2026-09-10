@@ -70,3 +70,29 @@ This remains the intentionally bounded synthetic/operator-supplied InfoSys
 reader. It does not add manifest/index/SQLite/MCP functionality, and this slice
 does not change archive safety, path handling, decompression error handling, or
 source/snapshot identity defaults.
+
+
+## Coordinator integration follow-up
+
+The worker commit was cherry-picked onto the ZIP/identity fixes. The normal
+combined suite first passed 71 tests. Coordinator inspection then identified
+three additional edge cases, each reproduced with a failing regression before
+its fix:
+
+- An active document root leaked its own direct text through fallback extraction.
+  Traversal now checks root membership in the safe set as well as descendants.
+- The initial wrapper fallback still dropped `strong`, `em`, `a`, `br`, and
+  `section` content. Safe inline text and tails are now retained generically;
+  explicit breaks and section boundaries are preserved. One old test expected
+  link labels to be silently dropped; its assertion was strengthened to require
+  the previously missing `onetwo` text as an additional paragraph. All original
+  code/table/warning assertions remain.
+- A document without a body exposed head/title content as article text. Head,
+  title and meta nodes are excluded from section traversal while safe metadata
+  and title extraction remain available.
+
+Each focused regression failed first, then passed. Final focused XML suite:
+5 passed. Combined full suite: 74 passed on CPython 3.13.12 (4.31s) and CPython
+3.12.13 (8.32s), including installed wheel/sdist CLI tests. Ruff and mypy passed.
+This integrated XML change still requires independent review at its final SHA;
+these results do not claim real vendor-corpus acceptance.

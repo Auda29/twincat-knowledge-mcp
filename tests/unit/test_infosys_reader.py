@@ -81,7 +81,9 @@ def test_reader_preserves_metadata_sections_links_images_and_code_whitespace() -
         "code",
         "table",
         "warning",
+        "paragraph",
     ]
+    assert topic.sections[-1].text.strip() == "onetwo"
     assert topic.sections[1].code == " first\nsecond\n  "
     assert topic.sections[1].language == "st"
     assert topic.sections[2].rows == (("Input", ""), ("Axis", "  "))
