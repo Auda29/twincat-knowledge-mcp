@@ -1,0 +1,204 @@
+#requires -Version 5.1
+<#!
+Read-only, standalone installed-InfoSys diagnostic. No network, extraction to
+files, HTML execution, installation or PLC access. JSON goes to stdout only.
+Dot-source to load functions for testing. See tools/README.md for limitations.
+!#>
+[CmdletBinding()]
+param(
+    [string] $ArchivePath,
+    [string] $CatalogRoot,
+    [ValidateSet('EN-US', 'DE-DE')] [string] $Locale = 'EN-US',
+    [string] $Topic = 'MC_MoveAbsolute',
+    [switch] $IncludeContent
+)
+
+function Find-InfoSysArchive {
+    [CmdletBinding()]
+    param([string] $CatalogRoot, [ValidateSet('EN-US', 'DE-DE')] [string] $Locale = 'EN-US')
+    $ErrorActionPreference = 'Stop'
+    if (-not $CatalogRoot) {
+        if ($env:OS -ne 'Windows_NT' -or -not $env:ProgramData) {
+            throw 'Automatic discovery requires Windows; specify -ArchivePath or -CatalogRoot.'
+        }
+        $CatalogRoot = Join-Path $env:ProgramData 'Microsoft/HelpLibrary2/Catalogs'
+    }
+    if (-not (Test-Path -LiteralPath $CatalogRoot -PathType Container)) {
+        throw 'Catalog root not found; specify -ArchivePath or -CatalogRoot.'
+    }
+    $candidates = @(
+        foreach ($catalog in Get-ChildItem -LiteralPath $CatalogRoot -Directory) {
+            $dir = Join-Path $catalog.FullName ('ContentStore/' + $Locale)
+            if (Test-Path -LiteralPath $dir -PathType Container) {
+                Get-ChildItem -LiteralPath $dir -File -Filter ('BKINFOSYS3*_' + $Locale + '*.mshc') |
+                    ForEach-Object { $_.FullName }
+            }
+        }
+    )
+    if ($candidates.Count -eq 0) { throw 'No matching Beckhoff archive found; specify -ArchivePath.' }
+    if ($candidates.Count -ne 1) { throw 'Multiple candidate archives found; specify -ArchivePath explicitly. No revision was selected automatically.' }
+    return $candidates[0]
+}
+
+function ConvertFrom-InfoSysMarkup {
+    param([Parameter(Mandatory = $true)] [Xml.XmlNode] $Node)
+    $copy = $Node.CloneNode($true)
+    foreach ($br in @($copy.SelectNodes('.//*[local-name()="br"]'))) {
+        [void] $br.ParentNode.ReplaceChild($copy.OwnerDocument.CreateTextNode("`n"), $br)
+    }
+    # Insert structural separators into a clone, never into the source DOM.
+    # Inline spans remain adjacent; existing whitespace (especially code) stays.
+    $blocks = @('p', 'div', 'section', 'article', 'header', 'footer', 'aside',
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'dl', 'dt', 'dd',
+        'blockquote', 'pre', 'table', 'tr', 'hr')
+    foreach ($element in @($copy.SelectNodes('.//*'))) {
+        if ($element.LocalName -in $blocks) {
+            [void] $element.ParentNode.InsertBefore($copy.OwnerDocument.CreateTextNode("`n"), $element)
+            [void] $element.ParentNode.InsertAfter($copy.OwnerDocument.CreateTextNode("`n"), $element)
+        } elseif ($element.LocalName -in @('td', 'th') -and
+            $null -ne $element.SelectSingleNode('preceding-sibling::*[local-name()="td" or local-name()="th"]')) {
+            [void] $element.ParentNode.InsertBefore($copy.OwnerDocument.CreateTextNode("`t"), $element)
+        }
+    }
+    if ($Node.LocalName -in @('pre', 'code')) { return $copy.InnerText }
+    return $copy.InnerText.Trim([char[]] "`r`n")
+}
+
+function Resolve-InfoSysLink {
+    param([string] $Href, [hashtable] $Index)
+    $result = @{ status = 'unsupported'; helpId = $null; targets = @() }
+    if ([string]::IsNullOrEmpty($Href) -or $Href.Length -gt 4096 -or $Href -match '[\x00-\x20\x7f]') {
+        $result.status = 'invalid'
+        return $result
+    }
+    if ($Href -match '^https?://') { $result.status = 'external'; return $result }
+    if ($Href -match '^ms-xhelp:' -and $Href -notmatch '[&#]') { $result.status = 'invalid' }
+    if ($Href -match '^ms-xhelp:///\?Id=([^&#]+)$') {
+        $encoded = $Matches[1]
+        if ($encoded -match '%(?![0-9a-fA-F]{2})') { return $result }
+        $id = [Uri]::UnescapeDataString($encoded)
+        if ($id -match '[\x00-\x20\x7f]') { return $result }
+        $result.helpId = $id
+        $targets = @()
+        if ($Index.ContainsKey($id)) { $targets = @($Index[$id] | Sort-Object entry) }
+        $result.targets = $targets
+        $result.status = if ($targets.Count -eq 1) { 'resolved' } elseif ($targets.Count -gt 1) { 'ambiguous' } else { 'not-found-in-scope' }
+    }
+    return $result
+}
+
+function Invoke-InfoSysProbe {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)] [string] $ArchivePath,
+        [string] $Topic = 'MC_MoveAbsolute',
+        [ValidateSet('EN-US', 'DE-DE')] [string] $Locale = 'EN-US',
+        [switch] $IncludeContent
+    )
+    $ErrorActionPreference = 'Stop'
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($ArchivePath)
+    try {
+        $matches = @()
+        $topicIndex = @{}
+        $pendingLinks = @{}
+        $scanned = 0
+        $totalBytes = 0L
+        $seen = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+        $languageId = if ($Locale -eq 'EN-US') { '1033' } else { '1031' }
+        $prefix = 'tcplclib_tc2_mc2/' + $languageId + '/'
+        foreach ($entry in $zip.Entries) {
+            if (-not $entry.FullName.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -or
+                -not $entry.FullName.EndsWith('.html', [StringComparison]::OrdinalIgnoreCase)) { continue }
+            $scanned++
+            if ($entry.FullName -match '[\\:\x00-\x1F%]' -or $entry.FullName -match '(^|/)\.\.?(/|$)' -or
+                -not $seen.Add($entry.FullName)) { throw 'Unsafe or duplicate archive entry name.' }
+            $totalBytes += $entry.Length
+            if ($entry.Length -gt 4MB -or $totalBytes -gt 64MB -or $scanned -gt 1000) {
+                throw 'Article size limit or scan budget exceeded.'
+            }
+            $stream = $entry.Open()
+            $settings = [Xml.XmlReaderSettings]::new()
+            $settings.DtdProcessing = [Xml.DtdProcessing]::Prohibit
+            $settings.XmlResolver = $null
+            $settings.MaxCharactersInDocument = 4MB
+            $reader = [Xml.XmlReader]::Create($stream, $settings)
+            $doc = [Xml.XmlDocument]::new()
+            $doc.XmlResolver = $null
+            $doc.PreserveWhitespace = $true
+            try { $doc.Load($reader) } finally { $reader.Dispose(); $stream.Dispose() }
+            $titleNode = $doc.SelectSingleNode('//*[local-name()="title"]')
+            $ids = @($doc.SelectNodes('//*[local-name()="head"]/*[local-name()="meta"][@name="Microsoft.Help.Id"]') |
+                ForEach-Object { $_.GetAttribute('content') } | Where-Object { $_ } | Sort-Object -Unique)
+            foreach ($id in $ids) {
+                if (-not $topicIndex.ContainsKey($id)) { $topicIndex[$id] = @() }
+                $topicIndex[$id] += [pscustomobject]@{
+                    entry = $entry.FullName
+                    title = $(if ($null -ne $titleNode) { $titleNode.InnerText.Trim() } else { $null })
+                }
+            }
+            if ($null -eq $titleNode -or $titleNode.InnerText.Trim() -ine $Topic) { continue }
+            $article = $doc.SelectSingleNode('//*[local-name()="article"]')
+            if ($null -eq $article) { throw "Matched topic has no article element: $($entry.FullName)" }
+            foreach ($node in @($article.SelectNodes('.//*[local-name()="script" or local-name()="style"]'))) {
+                [void] $node.ParentNode.RemoveChild($node)
+            }
+            $tables = @($article.SelectNodes('.//*[local-name()="table"]') | ForEach-Object {
+                @{ rows = @($_.SelectNodes('.//*[local-name()="tr"]') | ForEach-Object {
+                    @{ cells = @($_.SelectNodes('./*[local-name()="td" or local-name()="th"]') | ForEach-Object { ConvertFrom-InfoSysMarkup -Node $_ }) }
+                }) }
+            })
+            $code = @($article.SelectNodes('.//*[local-name()="pre" or (local-name()="code" and not(ancestor::*[local-name()="pre"]))]') | ForEach-Object { ConvertFrom-InfoSysMarkup -Node $_ })
+            $links = @($article.SelectNodes('.//*[local-name()="a"][@href]') | ForEach-Object {
+                @{ href = $_.GetAttribute('href'); text = $_.InnerText }
+            })
+            $metadata = @($doc.SelectNodes('//*[local-name()="head"]/*[local-name()="meta"][@name]') | ForEach-Object {
+                @{ name = $_.GetAttribute('name'); value = $_.GetAttribute('content') }
+            })
+            $match = [ordered]@{
+                entry = $entry.FullName; title = $titleNode.InnerText.Trim()
+                tableCount = $tables.Count; codeBlockCount = $code.Count; linkCount = $links.Count
+            }
+            if ($IncludeContent) {
+                $match.metadata = $metadata; $match.text = ConvertFrom-InfoSysMarkup -Node $article
+                $match.tables = $tables; $match.code = $code; $match.links = $links
+            }
+            $pendingLinks[$entry.FullName] = $links
+            $matches += [pscustomobject] $match
+        }
+        # Resolve only after the complete scan: archive order must not matter.
+        foreach ($match in $matches) {
+            $counts = [ordered]@{ resolved = 0; 'not-found-in-scope' = 0; ambiguous = 0; unsupported = 0; external = 0; invalid = 0 }
+            foreach ($link in @($pendingLinks[$match.entry])) {
+                $resolution = Resolve-InfoSysLink -Href $link.href -Index $topicIndex
+                $link.resolution = $resolution
+                $counts[$resolution.status]++
+            }
+            $match | Add-Member -NotePropertyName linkResolution -NotePropertyValue ([pscustomobject] $counts)
+        }
+        [pscustomobject]@{
+            schemaVersion = 'infosys-probe-1'
+            status = $(if ($matches.Count) { 'matched' } else { 'not-found' })
+            archive = [IO.Path]::GetFileName($ArchivePath)
+            library = 'Tc2_MC2'; locale = $Locale; requestedTitle = $Topic
+            scannedArticles = $scanned; includesContent = [bool] $IncludeContent
+            resolutionScope = $prefix
+            matches = @($matches)
+            limitations = @('Diagnostic only; not an import acceptance.', 'Help-ID links resolve only within resolutionScope; no cross-library, cross-package or anchor validation.', 'Metadata does not prove TwinCAT build compatibility.')
+        }
+    } finally { $zip.Dispose() }
+}
+
+if ($MyInvocation.InvocationName -ne '.') {
+    $ErrorActionPreference = 'Stop'
+    try {
+        if (-not $ArchivePath) { $ArchivePath = Find-InfoSysArchive -CatalogRoot $CatalogRoot -Locale $Locale }
+        $result = Invoke-InfoSysProbe -ArchivePath $ArchivePath -Topic $Topic -Locale $Locale -IncludeContent:$IncludeContent
+        $result | ConvertTo-Json -Depth 20
+        if ($result.status -ne 'matched') { exit 2 }
+    } catch {
+        [Console]::Error.WriteLine('InfoSys probe failed: ' + $_.Exception.Message)
+        exit 1
+    }
+}

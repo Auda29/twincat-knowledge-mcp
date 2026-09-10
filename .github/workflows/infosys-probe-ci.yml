@@ -1,0 +1,45 @@
+name: InfoSys probe CI
+on:
+  push:
+    branches: [main, 'swarm/**']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  probe:
+    name: ${{ matrix.os }} / ${{ matrix.shell }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            shell: powershell
+          - os: windows-2022
+            shell: pwsh
+          - os: ubuntu-24.04
+            shell: pwsh
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: Install pinned test framework
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ($PSVersionTable.PSVersion.Major -eq 5) {
+            Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Scope CurrentUser -Force | Out-Null
+          }
+          Install-Module Pester -RequiredVersion 5.7.1 -Scope CurrentUser -Repository PSGallery -Force
+      - name: Test synthetic archives and standalone CLI
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $PSVersionTable
+          Import-Module Pester -RequiredVersion 5.7.1
+          $r = Invoke-Pester ./tests/powershell -Output Detailed -PassThru
+          if ($r.FailedCount -or $r.Result -ne 'Passed') { exit 1 }
