@@ -1,13 +1,12 @@
 """Synthetic tests for corpus manifest invariants."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
 
 from twincat_knowledge.corpus.manifest import CorpusManifest, InventoryBalance
 from twincat_knowledge.domain.models import EntityCounts, SourceSnapshot
-
 
 SHA256 = "b" * 64
 
@@ -16,7 +15,7 @@ def snapshot(snapshot_id: str = "snapshot-1") -> SourceSnapshot:
     return SourceSnapshot(
         source_id="source-1",
         snapshot_id=snapshot_id,
-        imported_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+        imported_at=datetime(2026, 9, 10, tzinfo=UTC),
         documented_version=None,
         applicability="unknown",
         language="en",
@@ -75,7 +74,7 @@ def test_corpus_manifest_requires_schema_version_and_rejects_extra_fields() -> N
     manifest = CorpusManifest(
         package_schema_version="1.0",
         snapshot_id="corpus-snapshot-1",
-        created_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+        created_at=datetime(2026, 9, 10, tzinfo=UTC),
         sources=(snapshot(),),
         inventory=InventoryBalance(
             documents_total=1,
@@ -92,7 +91,7 @@ def test_corpus_manifest_requires_schema_version_and_rejects_extra_fields() -> N
         CorpusManifest(
             package_schema_version="1.0",
             snapshot_id="corpus-snapshot-1",
-            created_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+            created_at=datetime(2026, 9, 10, tzinfo=UTC),
             sources=(snapshot(),),
             inventory=InventoryBalance(
                 documents_total=1,
@@ -109,7 +108,7 @@ def test_corpus_manifest_rejects_duplicate_snapshot_ids() -> None:
         CorpusManifest(
             package_schema_version="1.0",
             snapshot_id="corpus-snapshot-1",
-            created_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+            created_at=datetime(2026, 9, 10, tzinfo=UTC),
             sources=(snapshot("duplicate"), snapshot("duplicate")),
             inventory=InventoryBalance(
                 documents_total=2,
@@ -125,7 +124,7 @@ def test_corpus_manifest_rejects_empty_sources_and_naive_created_at() -> None:
         CorpusManifest(
             package_schema_version="1.0",
             snapshot_id="corpus-snapshot-1",
-            created_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+            created_at=datetime(2026, 9, 10, tzinfo=UTC),
             sources=(),
             inventory=InventoryBalance(
                 documents_total=0,
@@ -155,7 +154,7 @@ def test_corpus_manifest_rejects_non_strict_schema_version() -> None:
         CorpusManifest(
             package_schema_version=1.0,
             snapshot_id="corpus-snapshot-1",
-            created_at=datetime(2026, 9, 10, tzinfo=timezone.utc),
+            created_at=datetime(2026, 9, 10, tzinfo=UTC),
             sources=(snapshot(),),
             inventory=InventoryBalance(
                 documents_total=1,

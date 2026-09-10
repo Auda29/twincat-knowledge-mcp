@@ -9,17 +9,16 @@ from twincat_knowledge.domain.errors import (
     InventoryBalanceError,
 )
 from twincat_knowledge.domain.models import (
-    AwareDateTime,
-    EntityCounts,
     MAX_COUNT,
     MAX_SNAPSHOTS,
+    AwareDateTime,
+    EntityCounts,
     OpaqueId,
     ReferenceText,
+    SourceSnapshot,
     StrictModel,
     VersionText,
-    SourceSnapshot,
 )
-
 
 BoundedCount = Annotated[int, Field(strict=True, ge=0, le=MAX_COUNT)]
 BoundedText = Annotated[
@@ -39,9 +38,7 @@ class InventoryBalance(StrictModel):
     @model_validator(mode="after")
     def reconcile(self) -> "InventoryBalance":
         accounted_for = (
-            self.documents_imported
-            + self.documents_skipped
-            + self.documents_failed
+            self.documents_imported + self.documents_skipped + self.documents_failed
         )
         if accounted_for != self.documents_total:
             raise InventoryBalanceError(
@@ -70,8 +67,12 @@ class CorpusManifest(StrictModel):
     normalizer_version: VersionText | None = None
     indexer_version: VersionText | None = None
     entity_counts: EntityCounts | None = None
-    unsupported_formats: tuple[BoundedText, ...] = Field(default=(), max_length=MAX_SNAPSHOTS)
-    missing_contents: tuple[BoundedText, ...] = Field(default=(), max_length=MAX_SNAPSHOTS)
+    unsupported_formats: tuple[BoundedText, ...] = Field(
+        default=(), max_length=MAX_SNAPSHOTS
+    )
+    missing_contents: tuple[BoundedText, ...] = Field(
+        default=(), max_length=MAX_SNAPSHOTS
+    )
     rights_reference: ReferenceText | None = None
 
     @model_validator(mode="after")

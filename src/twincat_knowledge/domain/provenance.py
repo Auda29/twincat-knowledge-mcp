@@ -9,8 +9,33 @@ from .errors import InvalidCanonicalUrlError, UnsafeLocatorError
 from .models import Language, OpaqueId, StrictModel
 
 MAX_LOCATOR_LENGTH = 2_048
+MAX_LOCATOR_DECODE_PASSES = 8
 MAX_TITLE_LENGTH = 4_096
 MAX_URL_LENGTH = 2_048
+_WINDOWS_DEVICE_NAMES = {
+    "aux",
+    "con",
+    "com1",
+    "com2",
+    "com3",
+    "com4",
+    "com5",
+    "com6",
+    "com7",
+    "com8",
+    "com9",
+    "lpt1",
+    "lpt2",
+    "lpt3",
+    "lpt4",
+    "lpt5",
+    "lpt6",
+    "lpt7",
+    "lpt8",
+    "lpt9",
+    "nul",
+    "prn",
+}
 
 
 def _validate_locator(value: str) -> str:
@@ -20,24 +45,41 @@ def _validate_locator(value: str) -> str:
         raise UnsafeLocatorError("locator contains a control character")
 
     decoded = value
-    for _ in range(3):
-        decoded = unquote(decoded)
+    for _ in range(MAX_LOCATOR_DECODE_PASSES):
+        unquoted = unquote(decoded)
+        if unquoted == decoded:
+            break
+        decoded = unquoted
+    else:
+        raise UnsafeLocatorError(
+            "locator percent-decoding exceeded the bounded pass limit"
+        )
+    if any(ord(char) < 32 or ord(char) == 127 for char in decoded):
+        raise UnsafeLocatorError("locator contains a control character")
 
     path = decoded.split("#", 1)[0]
     if not path or path.startswith("/") or "\\" in decoded:
         raise UnsafeLocatorError("locator must use a relative POSIX path")
-    if re.match(r"^[A-Za-z]:", path) or re.match(
-        r"^[A-Za-z][A-Za-z0-9+.-]*:", path
-    ):
+    if re.match(r"^[A-Za-z]:", path):
+        raise UnsafeLocatorError("locator must not be a drive path or URI")
+    if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", path):
         raise UnsafeLocatorError("locator must not be a drive path or URI")
 
     segments = path.split("/")
     if any(segment in {".", ".."} for segment in segments):
         raise UnsafeLocatorError("locator must not contain traversal segments")
+    if any(":" in segment for segment in segments):
+        raise UnsafeLocatorError("locator must not contain Windows ADS separators")
+    for segment in segments:
+        windows_name = segment.rstrip(" .").split(".", 1)[0].casefold()
+        if windows_name in _WINDOWS_DEVICE_NAMES:
+            raise UnsafeLocatorError("locator must not contain Windows device names")
     return value
 
 
-def _validate_canonical_url(value: str) -> str:
+def _validate_canonical_url(value: str | None) -> str | None:
+    if value is None:
+        return None
     if not value or len(value) > MAX_URL_LENGTH:
         raise InvalidCanonicalUrlError("canonical_url must be a bounded absolute URL")
     if any(ord(char) < 32 or ord(char) == 127 for char in value):
@@ -47,7 +89,11 @@ def _validate_canonical_url(value: str) -> str:
         hostname = parsed.hostname
     except ValueError as exc:
         raise InvalidCanonicalUrlError("canonical_url is malformed") from exc
-    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc or not hostname:
+    if (
+        parsed.scheme.lower() not in {"http", "https"}
+        or not parsed.netloc
+        or not hostname
+    ):
         raise InvalidCanonicalUrlError("canonical_url must use HTTP or HTTPS")
     if parsed.username is not None or parsed.password is not None:
         raise InvalidCanonicalUrlError("canonical_url must not contain credentials")

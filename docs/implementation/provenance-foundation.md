@@ -9,9 +9,18 @@ Netz ab und enthält keine Beckhoff- oder TwinCAT-Werte.
 - `SourceReference` ist ein Feldbeleg mit opaken `source_id`-/`snapshot_id`-
   Werten, Sprache (`de`/`en`), optionaler HTTP(S)-URL, sicherem relativem
   POSIX-Locator und exakt 64 hexadezimalen SHA-256-Zeichen.
-- Locatorwerte dürfen keine absoluten POSIX-Pfade, UNC-/Windows-Pfade,
-  Laufwerkspräfixe, URI-Schemata oder Traversalsegmente enthalten. Auch
-  percent-kodierte Traversale wird abgewiesen.
+- Locatorwerte sind auf 2.048 Zeichen begrenzt. Für die Sicherheitsprüfung wird
+  percent-dekodiert, bis ein Fixpunkt erreicht ist, höchstens jedoch über acht
+  Durchläufe. Wenn danach ein weiterer Decode-Durchlauf noch etwas ändern
+  würde, wird der Locator strikt abgewiesen; verbleibende Encodings werden
+  nicht still akzeptiert. Die Eingaberepräsentation bleibt im Modell erhalten.
+- Die Prüfung auf Steuerzeichen (`U+0000`–`U+001F`, `U+007F`) erfolgt vor und
+  nach dem vollständigen bounded Decode. Danach werden absolute Pfade,
+  Backslashes, Laufwerks-/URI-Präfixe und `.`/`..`-Segmente abgewiesen.
+- `:` ist in jedem dekodierten Pfadsegment verboten, damit Windows-ADS nicht
+  nur im ersten Segment erkannt werden. Pro Segment werden außerdem
+  `CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9` und `LPT1`–`LPT9` case-insensitiv
+  abgewiesen, auch mit Extension oder abschließenden Punkten/Leerzeichen.
 - `SourceSnapshot` bewahrt unbekannte dokumentierte Versionen ausdrücklich als
   `documented_version=None` mit `applicability="unknown"`. Eine bekannte
   Gültigkeit ohne belegte Version ist ungültig.
