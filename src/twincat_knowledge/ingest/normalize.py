@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Iterable
 from typing import Final
 
+from twincat_knowledge.domain.identity import (
+    canonical_section_id,
+    canonical_topic_id,
+    topic_identity,
+)
 from twincat_knowledge.domain.models import SourceSnapshot
 from twincat_knowledge.domain.provenance import SourceReference
 from twincat_knowledge.domain.topics import Section, Topic, TopicMetadata
@@ -20,24 +23,14 @@ class TopicNormalizationError(ValueError):
     """The supplied InfoSys topics cannot form a safe normalized slice."""
 
 
-def _opaque_id(prefix: str, identity: object) -> str:
-    encoded = json.dumps(
-        identity,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return f"{prefix}-{hashlib.sha256(encoded).hexdigest()}"
-
-
 def _topic_identity(topic: InfoSysTopic) -> dict[str, str]:
     """Use source identity, not title, as the topic identity."""
-    return {
-        "source_id": topic.source.source_id,
-        "snapshot_id": topic.source.snapshot_id,
-        "language": topic.language,
-        "raw_locator": topic.source.locator,
-    }
+    return topic_identity(
+        topic.source.source_id,
+        topic.source.snapshot_id,
+        topic.language,
+        topic.source.locator,
+    )
 
 
 def _source_for(
@@ -56,10 +49,7 @@ def _normalize_section(
     topic_id: str,
     source: SourceReference,
 ) -> Section:
-    section_id = _opaque_id(
-        "section",
-        {"topic_id": topic_id, "section_index": index},
-    )
+    section_id = canonical_section_id(topic_id, index)
     return Section(
         id=section_id,
         kind=section.kind,
@@ -158,7 +148,7 @@ def normalize_infosys(
         if original_topic_id is None:
             original_topic_id = source_topic_id
 
-        topic_id = _opaque_id("topic", _topic_identity(input_topic))
+        topic_id = canonical_topic_id(**_topic_identity(input_topic))
         if topic_id in seen_ids:
             raise TopicNormalizationError("duplicate normalized topic ID")
         seen_ids.add(topic_id)
