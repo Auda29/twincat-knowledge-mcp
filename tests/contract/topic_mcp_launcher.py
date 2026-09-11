@@ -124,6 +124,8 @@ def main() -> None:
     import tempfile
 
     with tempfile.TemporaryDirectory(prefix="topic-mcp-contract-") as directory:
+        if os.environ.get("TOPIC_MCP_EOF"):
+            return
         if os.environ.get("TOPIC_MCP_EMPTY"):
             run_topic_stdio(TopicQueryService(None))
             return
@@ -135,6 +137,25 @@ def main() -> None:
                     raise RuntimeError("secret/path must not cross boundary")
 
             run_topic_stdio(ExplodingService(None))
+            return
+        if mcp_error_mode := os.environ.get("TOPIC_MCP_MCP_ERROR"):
+            from mcp.shared.exceptions import MCPError
+
+            message = {
+                "invalid": "Invalid request parameters",
+                "unknown": "Unknown tool",
+            }[mcp_error_mode]
+
+            class MCPErrorService(TopicQueryService):
+                def search(self, request: object) -> object:
+                    del request
+                    raise MCPError(
+                        -32602,
+                        message,
+                        {"secret": "TOPSECRET", "path": "/private/secret"},
+                    )
+
+            run_topic_stdio(MCPErrorService(None))
             return
         service, loaded = build_fixture_service(Path(directory))
         try:

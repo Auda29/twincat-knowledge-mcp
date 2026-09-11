@@ -2,16 +2,20 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
-import select
+import queue
 import subprocess
 import sys
+import threading
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 from jsonschema import validate
+from mcp import types
 
 from twincat_knowledge.mcp_api.topic_server import (
     PROTOCOL_VERSION,
@@ -58,6 +62,25 @@ class _WireSession:
             stderr=subprocess.PIPE,
             text=True,
         )
+        self._stdout_queue: queue.Queue[str | BaseException | None] = queue.Queue(
+            maxsize=1
+        )
+        self._stdout_reader = threading.Thread(
+            target=self._read_stdout,
+            name="topic-mcp-stdout-reader",
+            daemon=True,
+        )
+        self._stdout_reader.start()
+
+    def _read_stdout(self) -> None:
+        assert self.process.stdout is not None
+        try:
+            while line := self.process.stdout.readline():
+                self._stdout_queue.put(line)
+        except BaseException as exc:
+            self._stdout_queue.put(exc)
+        finally:
+            self._stdout_queue.put(None)
 
     def __enter__(self) -> _WireSession:
         return self
@@ -65,26 +88,35 @@ class _WireSession:
     def send(self, request: dict[str, Any]) -> dict[str, Any]:
         process = self.process
         assert process.stdin is not None
-        assert process.stdout is not None
         process.stdin.write(json.dumps(request) + "\n")
         process.stdin.flush()
-        ready, _, _ = select.select([process.stdout], [], [], 30)
-        assert ready, "stdio child did not answer within 30 seconds"
-        line = process.stdout.readline()
-        assert line
-        return json.loads(line)
+        try:
+            item = self._stdout_queue.get(timeout=30)
+        except queue.Empty:
+            pytest.fail("stdio child did not answer within 30 seconds")
+        if item is None:
+            pytest.fail("stdio child reached EOF before answering")
+        if isinstance(item, BaseException):
+            raise AssertionError("stdio child stdout reader failed") from item
+        return json.loads(item)
 
     def __exit__(self, *exc_info: object) -> None:
         process = self.process
         if process.stdin is not None and not process.stdin.closed:
             process.stdin.close()
+        wait_error: str | None = None
         try:
             process.wait(timeout=30)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait()
-            pytest.fail("stdio child did not close within 30 seconds")
+            wait_error = "stdio child did not close within 30 seconds"
         stderr = process.stderr.read() if process.stderr is not None else ""
+        self._stdout_reader.join(timeout=30)
+        if self._stdout_reader.is_alive():
+            pytest.fail("stdio child stdout reader did not close within 30 seconds")
+        if wait_error is not None:
+            pytest.fail(wait_error)
         assert process.returncode == 0, stderr
         assert stderr == ""
 
@@ -317,6 +349,52 @@ def test_unsupported_version_and_missing_metadata_are_protocol_errors() -> None:
     assert "protocolVersion" not in json.dumps(missing["error"])
 
 
+def test_oversized_sdk_protocol_error_and_request_id_are_budget_exceptions() -> None:
+    oversized_version = "unsupported-" + ("v" * 40_000)
+    bad_meta = dict(META)
+    bad_meta["io.modelcontextprotocol/protocolVersion"] = oversized_version
+    unsupported = _run_wire(
+        [
+            {
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "server/discover",
+                "params": {"_meta": bad_meta},
+            }
+        ]
+    )[0]
+    assert unsupported["error"]["code"] == -32022
+    assert unsupported["error"]["data"] == {
+        "requested": oversized_version,
+        "supported": [PROTOCOL_VERSION],
+    }
+    assert (
+        len(json.dumps(unsupported, ensure_ascii=False, separators=(",", ":")).encode())
+        > WIRE_RESPONSE_LIMIT
+    )
+
+    large_id = "request-" + ("i" * 40_000)
+    large_id_request = _request(
+        1,
+        "tools/call",
+        name="tc_get_corpus_status",
+        arguments={},
+    )
+    large_id_request["id"] = large_id
+    large_id_response = _run_wire([large_id_request])[0]
+    assert large_id_response["id"] == large_id
+    assert large_id_response["result"]["structuredContent"]["status"] == "error"
+    assert large_id_response["result"]["isError"] is True
+    assert (
+        len(
+            json.dumps(
+                large_id_response, ensure_ascii=False, separators=(",", ":")
+            ).encode()
+        )
+        > WIRE_RESPONSE_LIMIT
+    )
+
+
 def test_real_pagination_walks_search_and_topic_sections_without_duplicates() -> None:
     with _WireSession() as session:
         first = session.send(
@@ -431,3 +509,70 @@ def test_runtime_service_error_is_fixed_and_never_leaks_exception_details() -> N
     assert response["content"][0]["text"] == (
         "tc_search: status=error; count=0; truncated=false."
     )
+
+
+@pytest.mark.parametrize(
+    ("mode", "message"),
+    [
+        ("invalid", "Invalid request parameters"),
+        ("unknown", "Unknown tool"),
+    ],
+)
+def test_service_mcp_errors_matching_protocol_messages_are_sanitized(
+    mode: str, message: str
+) -> None:
+    response = _run_wire(
+        [
+            _request(
+                1,
+                "tools/call",
+                name="tc_search",
+                arguments={"query": "x"},
+            )
+        ],
+        env={"TOPIC_MCP_MCP_ERROR": mode},
+    )[0]
+
+    result = response["result"]
+    assert result["structuredContent"]["status"] == "error"
+    assert result["isError"] is True
+    assert result["content"][0]["text"] == (
+        "tc_search: status=error; count=0; truncated=false."
+    )
+    assert message not in json.dumps(response)
+    assert "TOPSECRET" not in json.dumps(response)
+    assert "/private/secret" not in json.dumps(response)
+
+
+def test_service_cancellation_is_not_translated() -> None:
+    class CancelledService(TopicQueryService):
+        def search(self, request: object) -> object:
+            del request
+            raise asyncio.CancelledError
+
+    server = create_topic_server(CancelledService(None))
+    handler = server._lowlevel_server._request_handlers["tools/call"].handler  # type: ignore[attr-defined]
+
+    async def invoke() -> None:
+        await handler(
+            SimpleNamespace(request_id=1),
+            types.CallToolRequestParams(name="tc_search", arguments={"query": "x"}),
+        )
+
+    with pytest.raises(asyncio.CancelledError):
+        asyncio.run(invoke())
+
+
+def test_stdio_helper_reports_eof_without_hanging() -> None:
+    with pytest.raises(BaseException, match="stdio child reached EOF before answering"):
+        _run_wire(
+            [
+                _request(
+                    1,
+                    "tools/call",
+                    name="tc_search",
+                    arguments={"query": "x"},
+                )
+            ],
+            env={"TOPIC_MCP_EOF": "1"},
+        )
