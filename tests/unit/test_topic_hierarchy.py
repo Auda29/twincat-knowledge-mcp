@@ -306,8 +306,7 @@ def test_direct_extraction_sanitizes_error_from_caller_container() -> None:
 
 def test_underreported_metadata_is_rejected_at_actual_materialization_bound() -> None:
     metadata = _UnderreportedList(
-        [_meta("Microsoft.Help.Unrelated", "value")]
-        * (MAX_METADATA_ITEMS + 1)
+        [_meta("Microsoft.Help.Unrelated", "value")] * (MAX_METADATA_ITEMS + 1)
     )
     forged = _topic().model_copy(update={"metadata": metadata})
 
@@ -317,8 +316,7 @@ def test_underreported_metadata_is_rejected_at_actual_materialization_bound() ->
 
 def test_bounded_materialization_stops_after_first_overbound_item() -> None:
     metadata = _FiniteBombList(
-        [_meta("Microsoft.Help.Unrelated", "value")]
-        * (MAX_METADATA_ITEMS + 2),
+        [_meta("Microsoft.Help.Unrelated", "value")] * (MAX_METADATA_ITEMS + 2),
         limit=MAX_METADATA_ITEMS + 1,
     )
     forged = _topic().model_copy(update={"metadata": metadata})
@@ -380,7 +378,9 @@ def test_batch_preserves_sanitized_caller_iterator_error() -> None:
         yield _topic()
         raise TopicHierarchyExtractionError("caller-controlled secret")
 
-    with pytest.raises(TopicHierarchyExtractionError, match="topic iterator is invalid"):
+    with pytest.raises(
+        TopicHierarchyExtractionError, match="topic iterator is invalid"
+    ):
         extract_topic_hierarchies(topics())
 
 

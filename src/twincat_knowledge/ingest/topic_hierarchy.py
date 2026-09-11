@@ -103,7 +103,9 @@ def _section_payload(item: object) -> dict[str, object]:
     rows = _bounded_tuple(item.rows, maximum=MAX_SECTION_ITEMS, name="section rows")
     checked_rows: list[tuple[object, ...]] = []
     for row in rows:
-        row_values = _bounded_tuple(row, maximum=MAX_ATTRIBUTE_ITEMS, name="section row")
+        row_values = _bounded_tuple(
+            row, maximum=MAX_ATTRIBUTE_ITEMS, name="section row"
+        )
         checked_rows.append(row_values)
     return {
         "id": item.id,
