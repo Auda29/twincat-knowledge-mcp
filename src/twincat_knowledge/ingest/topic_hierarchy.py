@@ -43,9 +43,23 @@ def _bounded_tuple(value: object, *, maximum: int, name: str) -> tuple[object, .
     raise ValueError(f"{name} exceeds its supported bound")
 
 
+def _reject_unknown_model_state(model: object) -> None:
+    extras = getattr(model, "__pydantic_extra__", None)
+    fields = getattr(type(model), "model_fields", None)
+    state = getattr(model, "__dict__", None)
+    if (
+        (extras is not None and (not isinstance(extras, dict) or extras))
+        or not isinstance(fields, dict)
+        or not isinstance(state, dict)
+        or any(key not in fields for key in state)
+    ):
+        raise ValueError("model contains unknown fields")
+
+
 def _source_payload(source: SourceReference) -> dict[str, object]:
     if not isinstance(source, SourceReference):
         raise ValueError("source must be a SourceReference")
+    _reject_unknown_model_state(source)
     return {
         "source_id": source.source_id,
         "snapshot_id": source.snapshot_id,
@@ -62,6 +76,7 @@ def _source_payload(source: SourceReference) -> dict[str, object]:
 def _metadata_payload(item: object) -> dict[str, object]:
     if not isinstance(item, TopicMetadata):
         raise ValueError("metadata must contain TopicMetadata models")
+    _reject_unknown_model_state(item)
     attributes = _bounded_tuple(
         item.attributes, maximum=MAX_ATTRIBUTE_ITEMS, name="metadata attributes"
     )
@@ -84,6 +99,7 @@ def _section_payload(item: object) -> dict[str, object]:
 
     if not isinstance(item, Section):
         raise ValueError("sections must contain Section models")
+    _reject_unknown_model_state(item)
     rows = _bounded_tuple(item.rows, maximum=MAX_SECTION_ITEMS, name="section rows")
     checked_rows: list[tuple[object, ...]] = []
     for row in rows:
@@ -104,6 +120,7 @@ def _topic_payload(topic: Topic) -> dict[str, object]:
     """Copy fields through bounded containers without serializing caller objects."""
     if not isinstance(topic, Topic):
         raise ValueError("input must be a Topic model")
+    _reject_unknown_model_state(topic)
     metadata = _bounded_tuple(
         topic.metadata, maximum=MAX_METADATA_ITEMS, name="topic metadata"
     )

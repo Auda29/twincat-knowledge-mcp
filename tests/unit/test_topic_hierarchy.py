@@ -258,6 +258,39 @@ def test_construct_bypass_is_revalidated_and_cyclic_input_is_controlled() -> Non
         extract_topic_hierarchy(cyclic_topic)
 
 
+def test_model_copy_extra_on_topic_is_rejected_at_fresh_boundary() -> None:
+    forged = _topic().model_copy(update={"unexpected": "secret"})
+
+    with pytest.raises(TopicHierarchyExtractionError, match="normalized topic"):
+        extract_topic_hierarchy(forged)
+
+
+def test_model_copy_extra_on_source_is_rejected_at_fresh_boundary() -> None:
+    source = _topic().source.model_copy(update={"unexpected": "secret"})
+    forged = _topic().model_copy(update={"source": source})
+
+    with pytest.raises(TopicHierarchyExtractionError, match="normalized topic"):
+        extract_topic_hierarchy(forged)
+
+
+def test_model_copy_extra_on_section_is_rejected_at_fresh_boundary() -> None:
+    section = _table_section().model_copy(update={"unexpected": "secret"})
+    forged = _topic().model_copy(update={"sections": [section]})
+
+    with pytest.raises(TopicHierarchyExtractionError, match="normalized topic"):
+        extract_topic_hierarchy(forged)
+
+
+def test_model_copy_extra_on_metadata_is_rejected_at_fresh_boundary() -> None:
+    metadata = _meta("Microsoft.Help.Unrelated", "value").model_copy(
+        update={"unexpected": "secret"}
+    )
+    forged = _topic().model_copy(update={"metadata": [metadata]})
+
+    with pytest.raises(TopicHierarchyExtractionError, match="normalized topic"):
+        extract_topic_hierarchy(forged)
+
+
 def test_underreported_metadata_is_rejected_at_actual_materialization_bound() -> None:
     metadata = _UnderreportedList(
         [_meta("Microsoft.Help.Unrelated", "value")]
