@@ -6,11 +6,12 @@ import hashlib
 import json
 import os
 import re
-import sqlite3
 import stat
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Final, NoReturn, Self, cast
+from typing import Final, NoReturn, Self
+
+from twincat_knowledge.domain.topics import Topic
 
 from .manifest import CorpusManifest
 from .topic_export import MAX_TOTAL_BYTES, read_topic_export
@@ -290,37 +291,13 @@ def _parse_manifest(payload: bytes) -> TopicPackageManifest:
         _error("topic package manifest is invalid", TopicPackageLoadValidationError)
 
 
-def _index_counts(index: TopicIndex) -> tuple[int, int]:
-    connection = cast(sqlite3.Connection | None, getattr(index, "_connection", None))
-    if connection is None:
-        _error("topic index is unavailable", TopicPackageLoadValidationError)
+def _verify_index(index: TopicIndex, topics: tuple[Topic, ...]) -> None:
     try:
-        topic_count = connection.execute("SELECT COUNT(*) FROM topics").fetchone()
-        search_count = connection.execute("SELECT COUNT(*) FROM search_text").fetchone()
-        if topic_count is None or search_count is None:
-            raise ValueError
-        return int(topic_count[0]), int(search_count[0])
+        index.validate_topic_contents(topics)
     except Exception:
-        _error("topic index contents are invalid", TopicPackageLoadValidationError)
-
-
-def _verify_index(index: TopicIndex, topics: tuple[object, ...]) -> None:
-    topic_count, search_count = _index_counts(index)
-    if topic_count != len(topics) or search_count != len(topics):
         _error(
-            "topic index count does not match JSONL", TopicPackageLoadValidationError
+            "topic index contents do not match JSONL", TopicPackageLoadValidationError
         )
-    for topic in topics:
-        try:
-            topic_id = topic.id  # type: ignore[attr-defined]
-            found = index.get_topic(topic_id)
-        except Exception:
-            _error("topic index contents are invalid", TopicPackageLoadValidationError)
-        if found != topic:
-            _error(
-                "topic index contents do not match JSONL",
-                TopicPackageLoadValidationError,
-            )
 
 
 class LoadedTopicPackage:

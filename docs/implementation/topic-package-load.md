@@ -13,7 +13,7 @@ with load_topic_package(
     cache_dir=stable_operator_cache_parent,
 ) as loaded:
     topic = loaded.index.get_topic(topic_id)
-    matches = loaded.index.search('timer')
+    matches = loaded.index.search("timer")
 ```
 
 `expected_manifest_sha256` is mandatory and must be exactly 64 lowercase hex
@@ -90,3 +90,28 @@ claim protection against hostile concurrent parent-directory replacement.
 Coordinator verification: 21 focused loader tests and 232 full tests passed on
 each of CPython 3.12.10 and 3.13.12 with external pytest basetemps; Ruff check,
 format, and mypy passed. Independent review and native CI remain open.
+
+## Independent review: retrieval projection consistency
+
+The first loader review reproduced a repinned package whose exact topics and
+row counts were correct, but whose FTS rows duplicated identifiers or contained
+unrelated search text. Six coordinator regressions additionally cover foreign
+FTS IDs and tampered language/library/source-snapshot filter columns. Each was
+reproduced before correction; all now reject and clean the private cache.
+
+`TopicIndex.validate_topic_contents` owns the database checks: exact topic
+payloads, bounded filter-field comparisons, one-to-one FTS IDs, and the exact
+canonical search body shared with index construction. FTS rows are scanned once
+rather than queried once per topic. The loader no longer reaches into the
+index's private connection. SQL-side length guards prevent oversized search
+fields from being materialized in Python before rejection.
+
+These checks concern logical rows. They are not an independent audit of
+SQLite's private FTS shadow encoding or a source-authenticity check. The index
+is still opened read-only from the hash-verified private copy.
+
+Coordinator verification after fixes: 27 focused loader tests and 238 full tests
+passed on each of Python 3.12.10 and 3.13.12. Repository-wide Ruff check/format
+(including documentation code blocks) and configured mypy passed. The review's
+documentation quote-format finding was also reproduced and corrected.
+Independent follow-up and native CI remain open for this production delta.

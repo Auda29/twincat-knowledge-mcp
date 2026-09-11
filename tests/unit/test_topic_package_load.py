@@ -517,3 +517,40 @@ def test_cache_cannot_alias_a_directory_inside_source(tmp_path, alias_side):
         ):
             pass
     assert list(inside.iterdir()) == []
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ["duplicate_id", "foreign_id", "body", "language", "library", "source_snapshot_id"],
+)
+def test_repinned_index_search_semantics_must_match_topics(tmp_path, mutation):
+    from twincat_knowledge.corpus.topic_package_load import (
+        TopicPackageLoadValidationError,
+    )
+
+    topics = (_topic(), _topic("motion/en/stop.html", "Stop"))
+    package, _ = _package(tmp_path, topics)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    database = package / "topics.sqlite"
+    with sqlite3.connect(database) as connection:
+        if mutation == "duplicate_id":
+            connection.execute("UPDATE search_text SET id = ?", (topics[0].id,))
+        elif mutation == "foreign_id":
+            connection.execute("UPDATE search_text SET id = 'foreign'")
+        elif mutation == "body":
+            connection.execute("UPDATE search_text SET body = 'unrelated'")
+        else:
+            assert mutation in {"language", "library", "source_snapshot_id"}
+            connection.execute(f"UPDATE topics SET {mutation} = ?", ("unrelated",))
+    descriptor = json.loads((package / "manifest.json").read_bytes())
+    data = database.read_bytes()
+    descriptor["files"][1]["sha256"] = hashlib.sha256(data).hexdigest()
+    descriptor["files"][1]["bytes"] = len(data)
+    payload = json.dumps(descriptor).encode("utf-8")
+    (package / "manifest.json").write_bytes(payload)
+    pin = hashlib.sha256(payload).hexdigest()
+    with pytest.raises(TopicPackageLoadValidationError):
+        with load_topic_package(package, expected_manifest_sha256=pin, cache_dir=cache):
+            pass
+    assert list(cache.iterdir()) == []
