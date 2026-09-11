@@ -16,10 +16,12 @@ from twincat_knowledge.domain.topic_hierarchy import (
     HierarchyDiagnosticCode,
     TopicHierarchy,
 )
-from twincat_knowledge.domain.topics import Topic, TopicMetadata
+from twincat_knowledge.domain.topics import Section, Topic, TopicMetadata
 from twincat_knowledge.ingest.infosys import read_infosys
 from twincat_knowledge.ingest.normalize import normalize_infosys
 from twincat_knowledge.ingest.topic_hierarchy import (
+    MAX_ATTRIBUTE_ITEMS,
+    MAX_METADATA_ITEMS,
     TopicHierarchyExtractionError,
     extract_topic_hierarchies,
     extract_topic_hierarchy,
@@ -27,6 +29,37 @@ from twincat_knowledge.ingest.topic_hierarchy import (
 
 ARTICLE_HASH = "a" * 64
 ARCHIVE_HASH = "b" * 64
+
+
+class _UnderreportedList(list):
+    def __len__(self) -> int:
+        return 0
+
+
+class _FiniteBombList(_UnderreportedList):
+    def __init__(self, values, limit: int) -> None:
+        super().__init__(values)
+        self.limit = limit
+        self.consumed = 0
+        self.overconsumed = False
+
+    def __iter__(self):
+        for value in super().__iter__():
+            self.consumed += 1
+            if self.consumed > self.limit:
+                self.overconsumed = True
+                raise AssertionError("bounded iterator was over-consumed")
+            yield value
+
+
+def _table_section() -> Section:
+    source = _topic().source.model_copy(update={"section_id": "section-1"})
+    return Section(
+        id="section-1",
+        kind="table",
+        rows=(("cell",),),
+        source=source,
+    )
 
 
 def _snapshot() -> SourceSnapshot:
@@ -223,6 +256,63 @@ def test_construct_bypass_is_revalidated_and_cyclic_input_is_controlled() -> Non
     )
     with pytest.raises(TopicHierarchyExtractionError, match="normalized topic"):
         extract_topic_hierarchy(cyclic_topic)
+
+
+def test_underreported_metadata_is_rejected_at_actual_materialization_bound() -> None:
+    metadata = _UnderreportedList(
+        [_meta("Microsoft.Help.Unrelated", "value")]
+        * (MAX_METADATA_ITEMS + 1)
+    )
+    forged = _topic().model_copy(update={"metadata": metadata})
+
+    with pytest.raises(TopicHierarchyExtractionError, match="normalized topic"):
+        extract_topic_hierarchy(forged)
+
+
+def test_bounded_materialization_stops_after_first_overbound_item() -> None:
+    metadata = _FiniteBombList(
+        [_meta("Microsoft.Help.Unrelated", "value")]
+        * (MAX_METADATA_ITEMS + 2),
+        limit=MAX_METADATA_ITEMS + 1,
+    )
+    forged = _topic().model_copy(update={"metadata": metadata})
+
+    with pytest.raises(TopicHierarchyExtractionError, match="normalized topic"):
+        extract_topic_hierarchy(forged)
+    assert metadata.consumed == MAX_METADATA_ITEMS + 1
+    assert not metadata.overconsumed
+
+
+def test_exact_metadata_bound_remains_valid_for_finite_list() -> None:
+    metadata = _UnderreportedList(
+        [_meta("Microsoft.Help.Unrelated", "value")] * MAX_METADATA_ITEMS
+    )
+    forged = _topic().model_copy(update={"metadata": metadata})
+
+    result = extract_topic_hierarchy(forged)
+
+    assert result.hierarchy is None
+    assert result.diagnostic_codes == (HierarchyDiagnosticCode.PARENT_MISSING,)
+
+
+def test_underreported_section_row_is_rejected_without_unbounded_row_copy() -> None:
+    row = _UnderreportedList(["cell"] * (MAX_ATTRIBUTE_ITEMS + 1))
+    section = _table_section().model_copy(update={"rows": (row,)})
+    forged = _topic().model_copy(update={"sections": [section]})
+
+    with pytest.raises(TopicHierarchyExtractionError, match="normalized topic"):
+        extract_topic_hierarchy(forged)
+
+
+def test_underreported_metadata_pair_is_rejected_without_dropping_extra_items() -> None:
+    pair = _UnderreportedList(["name", "value", "unexpected"])
+    metadata = _meta("Microsoft.Help.Unrelated", "value").model_copy(
+        update={"attributes": (pair,)}
+    )
+    forged = _topic().model_copy(update={"metadata": [metadata]})
+
+    with pytest.raises(TopicHierarchyExtractionError, match="normalized topic"):
+        extract_topic_hierarchy(forged)
 
 
 def test_batch_extraction_is_bounded_incrementally() -> None:

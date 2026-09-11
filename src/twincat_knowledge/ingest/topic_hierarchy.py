@@ -33,7 +33,14 @@ def _bounded_tuple(value: object, *, maximum: int, name: str) -> tuple[object, .
         raise ValueError(f"{name} must be a tuple or list")
     if len(value) > maximum:
         raise ValueError(f"{name} exceeds its supported bound")
-    return tuple(value)
+    iterator = iter(value)
+    items: list[object] = []
+    for _ in range(maximum + 1):
+        try:
+            items.append(next(iterator))
+        except StopIteration:
+            return tuple(items)
+    raise ValueError(f"{name} exceeds its supported bound")
 
 
 def _source_payload(source: SourceReference) -> dict[str, object]:
@@ -60,9 +67,10 @@ def _metadata_payload(item: object) -> dict[str, object]:
     )
     pairs: list[tuple[object, object]] = []
     for pair in attributes:
-        if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+        pair_values = _bounded_tuple(pair, maximum=2, name="metadata attribute pair")
+        if len(pair_values) != 2:
             raise ValueError("metadata attributes must contain pairs")
-        pairs.append((pair[0], pair[1]))
+        pairs.append((pair_values[0], pair_values[1]))
     return {
         "name": item.name,
         "content": item.content,
@@ -79,11 +87,8 @@ def _section_payload(item: object) -> dict[str, object]:
     rows = _bounded_tuple(item.rows, maximum=MAX_SECTION_ITEMS, name="section rows")
     checked_rows: list[tuple[object, ...]] = []
     for row in rows:
-        if not isinstance(row, (tuple, list)):
-            raise ValueError("section rows must contain tuples or lists")
-        if len(row) > MAX_ATTRIBUTE_ITEMS:
-            raise ValueError("section row exceeds its supported bound")
-        checked_rows.append(tuple(row))
+        row_values = _bounded_tuple(row, maximum=MAX_ATTRIBUTE_ITEMS, name="section row")
+        checked_rows.append(row_values)
     return {
         "id": item.id,
         "kind": item.kind,
