@@ -172,6 +172,12 @@ def test_snapshot_config_priority_and_config_relative_paths(
         cache_dir=tmp_path / "flag-cache",
     )
     assert settings.state_dir == (tmp_path / "flag-state").resolve()
+    settings = load_snapshot_settings(
+        state_dir=tmp_path / "flag-state",
+        cache_dir=tmp_path / "flag-cache",
+        environ={"TCK_STATE_DIR": "\x00ignored", "TCK_CACHE_DIR": "\x00ignored"},
+    )
+    assert settings.cache_dir == (tmp_path / "flag-cache").resolve()
 
 
 def test_snapshot_config_is_required_only_for_missing_settings(tmp_path: Path) -> None:

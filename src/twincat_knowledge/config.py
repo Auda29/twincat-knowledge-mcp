@@ -168,8 +168,16 @@ def load_snapshot_settings(
     explicit_cache = _nonempty_setting(
         os.fspath(cache_dir) if cache_dir is not None else None
     )
-    environment_state = _nonempty_setting(environment.get(_SNAPSHOT_STATE_ENV))
-    environment_cache = _nonempty_setting(environment.get(_SNAPSHOT_CACHE_ENV))
+    environment_state = (
+        None
+        if explicit_state is not None
+        else _nonempty_setting(environment.get(_SNAPSHOT_STATE_ENV))
+    )
+    environment_cache = (
+        None
+        if explicit_cache is not None
+        else _nonempty_setting(environment.get(_SNAPSHOT_CACHE_ENV))
+    )
     selected_state = explicit_state or environment_state or config_state
     selected_cache = explicit_cache or environment_cache or config_cache
 
