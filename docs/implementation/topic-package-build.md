@@ -72,3 +72,18 @@ swallowed.
 
 Read-only serving, package loading, activation, and rollback are separate
 components and are intentionally outside this build slice.
+
+## Coordinator verification
+
+A regression demonstrated that a same-length JSONL modification between export
+and manifest publication was accepted. Publication now compares both actual byte
+count and SHA-256 against the original export summary; the regression now rejects
+that mismatched generation without a final manifest.
+
+The coordinator ran 20 focused package tests and 204 full tests on each of
+CPython 3.12.10 and 3.13.12, including wheel/sdist installation, with dedicated
+pytest basetemps outside `/tmp`. All passed; Ruff check/format and mypy passed.
+Earlier worker installation failures while mapping the installed pydantic_core
+shared object did not reproduce with these test directories. They are not
+counted as passes from the earlier failed run. Independent package review and
+native CI for this component remain open.

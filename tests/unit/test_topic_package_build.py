@@ -382,3 +382,23 @@ def test_no_model_network_calls_are_needed(tmp_path: Path) -> None:
     result = topic_package.build_topic_package(tmp_path / "offline", _manifest(()), ())
     assert result.manifest.index_format == "sqlite-fts5"
     assert os.path.exists(result.path / "topics.sqlite")
+
+
+def test_same_size_jsonl_change_prevents_manifest(tmp_path, monkeypatch):
+    topics = (_topic(),)
+    original_create = topic_package.create_topic_index
+
+    def change_jsonl(path, records, **options):
+        count = original_create(path, records, **options)
+        jsonl = path.with_name("topics.jsonl")
+        before = jsonl.read_bytes()
+        after = before.replace(b"Move", b"Fake")
+        assert after != before and len(after) == len(before)
+        jsonl.write_bytes(after)
+        return count
+
+    monkeypatch.setattr(topic_package, "create_topic_index", change_jsonl)
+    output = tmp_path / "package"
+    with pytest.raises(topic_package.TopicPackageValidationError):
+        topic_package.build_topic_package(output, _manifest(topics), topics)
+    assert not (output / "manifest.json").exists()

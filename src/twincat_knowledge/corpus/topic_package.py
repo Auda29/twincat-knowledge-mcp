@@ -368,7 +368,7 @@ def build_topic_package(
 
         jsonl_bytes, jsonl_sha = _artifact_facts(jsonl_path)
         sqlite_bytes, sqlite_sha = _artifact_facts(sqlite_path)
-        if jsonl_bytes != exported.bytes:
+        if jsonl_bytes != exported.bytes or jsonl_sha != exported.sha256:
             raise TopicPackageValidationError("JSONL changed during package build")
         package_manifest = TopicPackageManifest(
             format_version=FORMAT_VERSION,
