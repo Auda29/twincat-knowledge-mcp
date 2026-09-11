@@ -114,4 +114,12 @@ Coordinator verification after fixes: 27 focused loader tests and 238 full tests
 passed on each of Python 3.12.10 and 3.13.12. Repository-wide Ruff check/format
 (including documentation code blocks) and configured mypy passed. The review's
 documentation quote-format finding was also reproduced and corrected.
-Independent follow-up and native CI remain open for this production delta.
+The independent follow-up at `3d78197` passed. Native CI then found a
+Windows-only cleanup failure for early FTS-row rejection: the unfinished cursor
+remained reachable through the exception traceback after connection close.
+Explicit `finally: rows.close()` now finalizes the statement before connection
+close and private-cache removal. Two retained-cursor regressions reproduced the
+missing close on Linux before correction; the original Windows rejection/cache
+assertions remain unchanged. The coordinator rerun passed 240 full tests on each
+of Python 3.12.10 and 3.13.12, with Ruff and mypy passing. Independent review and
+native Windows CI of this cursor-lifetime fix remain required.

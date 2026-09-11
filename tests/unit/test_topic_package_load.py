@@ -554,3 +554,48 @@ def test_repinned_index_search_semantics_must_match_topics(tmp_path, mutation):
         with load_topic_package(package, expected_manifest_sha256=pin, cache_dir=cache):
             pass
     assert list(cache.iterdir()) == []
+
+
+@pytest.mark.parametrize("mutation", ["foreign_id", "body"])
+def test_rejected_fts_scan_closes_cursor_before_connection(
+    tmp_path, monkeypatch, mutation
+):
+    # Retain the live cursor, like an exception traceback does on early rejection.
+    # This exposes the Windows close-before-unlink requirement on every platform.
+    original_connect = sqlite3.connect
+    events = []
+    retained = []
+
+    class TrackedCursor:
+        def __init__(self, cursor):
+            self.cursor = cursor
+            retained.append(self)
+
+        def __iter__(self):
+            return iter(self.cursor)
+
+        def close(self):
+            self.cursor.close()
+            events.append("cursor")
+
+    class TrackedConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            cursor = super().execute(sql, *args, **kwargs)
+            if sql.startswith("SELECT CASE WHEN length(CAST(id AS BLOB))"):
+                self.tracked_scan = True
+                return TrackedCursor(cursor)
+            return cursor
+
+        def close(self):
+            if getattr(self, "tracked_scan", False):
+                events.append("connection")
+            return super().close()
+
+    def connect(*args, **kwargs):
+        kwargs["factory"] = TrackedConnection
+        return original_connect(*args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", connect)
+    test_repinned_index_search_semantics_must_match_topics(tmp_path, mutation)
+    assert retained
+    assert events == ["cursor", "connection"]

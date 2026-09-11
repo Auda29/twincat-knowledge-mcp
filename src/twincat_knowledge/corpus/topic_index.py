@@ -359,10 +359,15 @@ class TopicIndex:
                 "FROM search_text",
                 (MAX_SEARCH_TEXT_BYTES,),
             )
-            for topic_id, body in rows:
-                matched = expected.pop(topic_id, None)
-                if matched is None or body != _search_text(matched):
-                    raise TopicIndexValidationError("index search rows mismatch")
+            try:
+                for topic_id, body in rows:
+                    matched = expected.pop(topic_id, None)
+                    if matched is None or body != _search_text(matched):
+                        raise TopicIndexValidationError("index search rows mismatch")
+            finally:
+                # An early rejection leaves a live statement in the traceback.
+                # Finalize it before connection close and Windows cache removal.
+                rows.close()
             if expected:
                 raise TopicIndexValidationError("index search rows missing")
         except (sqlite3.Error, UnicodeError) as exc:
