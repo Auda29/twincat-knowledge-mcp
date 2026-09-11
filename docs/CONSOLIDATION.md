@@ -1,6 +1,6 @@
 # Konsolidierungsauftrag — aktiver Arbeitsmodus
 
-Das vollständige Feature-Goal in `GOAL.md` bleibt pausiert. Keine neuen Produktfeatures. Dieser Auftrag konsolidiert vorhandene Arbeit; er ersetzt keine Abnahmebedingung in `PLAN.md` oder im bisherigen Projektvertrag.
+Die Konsolidierung ist mit externem CI-Auslieferungsblocker teilabgeschlossen. Der Nutzer hat anschließend ausschließlich die Fertigstellung und Abnahme des vorhandenen Domain-Browse-Service freigegeben; der aktuelle Umfang steht in `GOAL.md`. Der übrige Feature-Ausbau bleibt pausiert. Die folgenden Sicherungs-, Review- und Merge-Grenzen gelten weiter; keine Abnahmebedingung in `PLAN.md` wird ersetzt.
 
 ## Reihenfolge
 

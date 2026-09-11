@@ -1,6 +1,6 @@
-# Projektstatus — Konsolidierung statt Feature-Ausbau
+# Projektstatus — konsolidierte Basis und begrenzte Browse-Fortsetzung
 
-Stand: 2026-09-11. Maßgeblicher Arbeitsmodus: [CONSOLIDATION.md](CONSOLIDATION.md). **Teilabschluss; keine Produktabnahme, kein Release.**
+Stand: 2026-09-11. Aktueller Auftrag: vorhandenen Domain-Browse-Service gemäß [GOAL.md](GOAL.md) fertigstellen und unabhängig auf der konsolidierten Basis prüfen. Die Grenzen aus [CONSOLIDATION.md](CONSOLIDATION.md) bleiben verbindlich. **Konsolidierung teilabgeschlossen; Browse-Abnahme offen; keine Produktabnahme, kein Release.**
 
 ## Arbeitsstände
 
@@ -56,14 +56,14 @@ Für jede Zeile gilt: **gemeinsame Entwicklungsbasis enthält den Stand; auf mai
 - GitHub meldet `Artifact storage quota has been hit`; Neuberechnung laut Fehlermeldung alle 6–12 Stunden.
 - Frische Repository-Inventur: **0 Actions-Artefakte**. Hier gibt es nichts zur Quotenfreigabe zu löschen.
 - Kontoweite Billing-Usage-Abfrage: **HTTP 403**, `Resource not accessible by personal access token`. Auch Checks-API ist nicht zugänglich; Actions-Run-/Job-APIs sind zugänglich.
-- Erforderliche Nutzerentscheidung: Kontoinhaber prüft Actions-Speicher/Budget; zulässige konkrete Artefaktbereinigung außerhalb dieses Repositories oder Budgetänderung nur separat autorisieren. Keine solchen Änderungen vorgenommen.
+- Der Nutzer hat die Nulloy-Artefaktbereinigung an den zuständigen Projektagenten übergeben. Hier keine Änderungen an Nulloy, Konto-Budget oder fremden Artefakten. Eine Quotenfreigabe gilt erst nach erfolgreichem verpflichtendem Upload dieses Repositories als belegt.
 - Lokale Worktree-Bereinigung schafft KEINE GitHub-Artefaktquote. Keine Checks entfernt/übersprungen/ignoriert. Main-Merges bis grüne erforderliche CI blockiert.
 
 ## Geparkter Browse-Zwischenstand
 
 - Review bei `db9d759`: zwei Medium-Befunde (fehlende Kennzeichnung unvollständiger Breadcrumbs; privater/eager Indexzugriff) und fehlende dauerhafte Regressionen.
 - Uncommittierte Korrekturen erhalten: Vollständigkeits-/Diagnosefelder und öffentliche begrenzte Indexiteration; nicht unabhängig abgenommen.
-- Worker-Checkpoint: 60 fokussierte Tests, zwei Installationstests und 343 Tests auf Python 3.12.10 bestanden; Ruff grün. `mypy src` scheitert an einem unbenötigten `type: ignore`. Python 3.13.12 und finale Review fehlen. Keine laufende Featurearbeit.
+- Worker-Checkpoint: 60 fokussierte Tests, zwei Installationstests und 343 Tests auf Python 3.12.10 bestanden; Ruff grün. `mypy src` scheitert an einem unbenötigten `type: ignore`. Python 3.13.12 und finale Review fehlen. Dieser historische Checkpoint ist keine Abnahme. Die begrenzte Wiederaufnahme ist autorisiert; vor Projektdelegation wird das leichte Worker-Modell erneut geprüft. Keine HTTP- oder sonstige Featurearbeit.
 
 ## Sicherung und lokale Bereinigung
 

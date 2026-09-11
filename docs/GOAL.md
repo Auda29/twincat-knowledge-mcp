@@ -10,7 +10,9 @@ Vom Nutzer beauftragtes Umsetzungsziel. Dieser Vertrag ist im Repository hinterl
 
 Den vollständigen Plan `docs/PLAN.md` in `Auda29/twincat-knowledge-mcp` inkrementell mit einem koordinierten Agent-Swarm umsetzen: installierbarer, projektunabhängiger Beckhoff-/TwinCAT-Knowledge-MCP nach `2026-07-28` mit den 15 festgelegten Read-only-Tools. Die Definition of Done in Abschnitt 15 des Plans ist verbindlich.
 
-**Aktueller Fokus:** Browse-Service (`tc_browse_topics`) abnehmen. Zwei Medium-Reviewbefunde und ergänzende Regressionstests sind in Bearbeitung auf `swarm/topic-browse-service`. Keine weiteren Features, bis Browse abgenommen und der externe CI-Artefaktblocker (GitHub Actions Speicherquote) geklärt ist.
+**Aktueller Fokus:** Den vorhandenen Domain-Browse-Service `TopicQueryService.browse_topics` auf `swarm/topic-browse-service` fertigstellen: zwei Medium-Reviewbefunde schließen, dauerhafte Regressionen ergänzen und unabhängig am exakten gemeinsamen Stand prüfen. Zunächst keine neue MCP-Anbindung: `tc_browse_topics` ist ein geplantes Tool, kein bereits exponiertes Werkzeug. Die bestehenden drei MCP-Tools und ihre installierten stdio-/Snapshot-Lifecycle-Tests bleiben erhalten.
+
+Abnahme dieser Etappe: Python 3.12.10/3.13.12, Ruff check/format, `mypy src`, Wheel/sdist aus fremdem CWD, Windows/Linux und unabhängige Review auf der konsolidierten Basis. Erforderliche CI einschließlich Artefaktupload bleibt Merge-Gate; ein externer Quotenblocker verhindert nicht diese lokale Arbeit, aber vollständige Auslieferungsabnahme und Main-Merge. Anschließend stoppen; weder HTTP noch andere Features automatisch beginnen, auch nicht nach Quotenfreigabe.
 
 ## Verifikation
 
@@ -28,7 +30,7 @@ Den vollständigen Plan `docs/PLAN.md` in `Auda29/twincat-knowledge-mcp` inkreme
 - Koordinator zerlegt den Plan in abhängigkeitsgeordnete, kleine Arbeitspakete und führt Integration sowie Abnahme durch.
 - Subagents verwenden ein leichteres Modell, bevorzugt GPT Luna, sofern unter dem konfigurierten Provider tatsächlich verfügbar. Modell-ID nicht aus dem Anzeigenamen erraten.
 - Vor dem ersten Swarm die tatsächlich aufgelöste Provider-/Modellkonfiguration prüfen. Ohne bestätigtes leichtes Modell nicht still das Elternmodell erben; Nutzer um Konfiguration bitten.
-- Zunächst maximal drei parallele Worker; keine rekursive Delegation. Ressourcen vor Builds prüfen, speicherintensive Tests/Builds nötigenfalls serialisieren.
+- Für diese Etappe maximal ein Implementierungsworker und ein unabhängiger Reviewer; keine rekursive Delegation. Ressourcen vor Builds prüfen, schwere Tests/Builds unter dem gemeinsamen Lock serialisieren.
 - Getrennte Worktrees und eindeutige Dateiverantwortung. Gemeinsame Paket-, Schema- und CI-Dateien haben genau einen zuständigen Integrator.
 - Jeder Worker erhält relevante Planabschnitte, konkrete Ein-/Ausgabeverträge, Dateigrenzen, Tests und Stop-Bedingungen.
 - Kleine TDD-Schritte: RED nachweisen, minimal implementieren, GREEN nachweisen, erst dann refaktorieren.
@@ -61,11 +63,11 @@ Offizieller Mechanismus: `/goal` setzt ein sessiongebundenes persistentes Ziel; 
 Nachdem das leichte Worker-Modell konfiguriert und überprüft wurde, in der Repo-Session senden:
 
 ```text
-/goal Setze docs/PLAN.md in /home/hermes/workspace/-twincat-knowledge-mcp vollständig mit einem Agent-Swarm gemäß docs/GOAL.md um.
-verify: Erfülle jede Definition-of-Done-Bedingung aus docs/PLAN.md mit echten Tests, Installations-/MCP-/Hostnachweisen und verifizierten Artefakten. Blockierte oder übersprungene Kriterien bleiben offen.
-constraints: Leichtes verifiziertes Subagent-Modell, bevorzugt GPT Luna; maximal drei parallele Worker; TDD, getrennte Worktrees, unabhängige Review. Repo privat, keine SPS-Aktionen oder Weitergabe unfreigegebener Beckhoff-Daten.
+/goal Stelle ausschließlich den vorhandenen Domain-Browse-Service in /home/hermes/workspace/-twincat-knowledge-mcp gemäß docs/GOAL.md fertig und prüfe ihn auf der konsolidierten Basis.
+verify: Beide Reviewbefunde geschlossen; dauerhafte Regressionen; Python 3.12.10/3.13.12, Ruff, mypy src, installierte Wheel-/sdist- und Snapshot-Lifecycle-Tests, Windows/Linux sowie unabhängige Review. CI-Auslieferung separat nachweisen; blockierte Kriterien bleiben offen. Alle Produktgates aus docs/PLAN.md bleiben verbindlich.
+constraints: Leichtes verifiziertes Subagent-Modell, bevorzugt GPT Luna; maximal ein Implementierungsworker und ein unabhängiger Reviewer; TDD, getrennte Worktrees, schwere Prüfungen serialisieren. Repo privat, keine SPS-Aktionen oder Weitergabe unfreigegebener Beckhoff-Daten. Keine neue MCP-Anbindung, kein HTTP oder anderes Feature.
 boundaries: Nur Auda29/twincat-knowledge-mcp und zugehörige isolierte Tests/Worktrees; Implementierung über swarm/*-Branches und PRs; selbstständiger Merge erst nach unabhängiger Review und grüner CI, kein autonomes Release.
-stop when: Modellzugang, Datenfreigabe, notwendige Plattformtests oder zusätzliche Berechtigungen fehlen. Blocker konkret benennen, nicht als Produkterfolg melden.
+stop when: Die Browse-Etappe abgeschlossen ist oder ihre verbleibende Abnahme extern blockiert ist. Sichere unabhängige Browse-Arbeit zuvor abschließen. Blocker konkret benennen; kein Produkterfolg und keine automatische Fortsetzung des Gesamtplans.
 ```
 
 Anschließend mit `/goal show` den tatsächlich aktiven Vertrag prüfen. Keine Behauptung eines gestarteten Swarms ohne echte Delegations-Handles und bestätigte Modellwahl.
