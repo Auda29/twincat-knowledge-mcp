@@ -46,27 +46,34 @@ T = TypeVar("T")
 RequestT = TypeVar("RequestT", bound=BaseModel)
 
 
-def _has_bypassed_fields(value: object) -> bool:
+def _has_bypassed_fields(value: object, depth: int = 0) -> bool:
+    # Valid request schemas are shallow; reject cyclic/deep bypass graphs before
+    # Python recursion limits or model serialization can be reached.
+    if depth >= 16:
+        return True
     if isinstance(value, BaseModel):
         fields = type(value).model_fields
         if any(key not in fields for key in value.__dict__):
             return True
-        return any(_has_bypassed_fields(item) for item in value.__dict__.values())
+        return any(
+            _has_bypassed_fields(item, depth + 1) for item in value.__dict__.values()
+        )
     if isinstance(value, dict):
         return any(
-            _has_bypassed_fields(key) or _has_bypassed_fields(item)
+            _has_bypassed_fields(key, depth + 1)
+            or _has_bypassed_fields(item, depth + 1)
             for key, item in value.items()
         )
     if isinstance(value, (tuple, list, set, frozenset)):
-        return any(_has_bypassed_fields(item) for item in value)
+        return any(_has_bypassed_fields(item, depth + 1) for item in value)
     return False
 
 
 def _validated_request(model_type: type[RequestT], request: object) -> RequestT | None:  # noqa: UP047
     """Revalidate even instances made with Pydantic bypass APIs."""
-    if not isinstance(request, model_type) or _has_bypassed_fields(request):
-        return None
     try:
+        if not isinstance(request, model_type) or _has_bypassed_fields(request):
+            return None
         payload = request.model_dump(mode="python", warnings=False)
         return model_type.model_validate(payload)
     except Exception:
