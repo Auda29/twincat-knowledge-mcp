@@ -2,13 +2,15 @@
 
 ## Status
 
-**Feature-Umsetzung pausiert.** Aktuell gilt der begrenzte Konsolidierungsauftrag in [CONSOLIDATION.md](CONSOLIDATION.md); der belegte Stand steht in [STATUS.md](STATUS.md). Nach der Konsolidierung nicht automatisch mit neuen Features fortfahren. Die folgenden Produktanforderungen und Abnahmegrenzen bleiben unverändert verbindlich.
+**Feature-Umsetzung pausiert bis auf Browse-Service-Abnahme.** Aktuell gilt der begrenzte Konsolidierungsauftrag in [CONSOLIDATION.md](CONSOLIDATION.md); der belegte Stand steht in [STATUS.md](STATUS.md). Nach der Browse-Abnahme nicht automatisch mit neuen Features fortfahren. Die folgenden Produktanforderungen und Abnahmegrenzen bleiben unverändert verbindlich.
 
 Vom Nutzer beauftragtes Umsetzungsziel. Dieser Vertrag ist im Repository hinterlegt; allein das Schreiben dieser Datei aktiviert keinen nativen Hermes-Goal-Loop. Der Loop und die Subagent-Modellkonfiguration müssen in der ausführenden Hermes-Session aktiviert und geprüft werden.
 
 ## Outcome
 
-Den vollständigen Plan `docs/PLAN.md` in `Auda29/-twincat-knowledge-mcp` inkrementell mit einem koordinierten Agent-Swarm umsetzen: installierbarer, projektunabhängiger Beckhoff-/TwinCAT-Knowledge-MCP nach `2026-07-28` mit den 15 festgelegten Read-only-Tools. Die Definition of Done in Abschnitt 15 des Plans ist verbindlich.
+Den vollständigen Plan `docs/PLAN.md` in `Auda29/twincat-knowledge-mcp` inkrementell mit einem koordinierten Agent-Swarm umsetzen: installierbarer, projektunabhängiger Beckhoff-/TwinCAT-Knowledge-MCP nach `2026-07-28` mit den 15 festgelegten Read-only-Tools. Die Definition of Done in Abschnitt 15 des Plans ist verbindlich.
+
+**Aktueller Fokus:** Browse-Service (`tc_browse_topics`) abnehmen. Zwei Medium-Reviewbefunde und ergänzende Regressionstests sind in Bearbeitung auf `swarm/topic-browse-service`. Keine weiteren Features, bis Browse abgenommen und der externe CI-Artefaktblocker (GitHub Actions Speicherquote) geklärt ist.
 
 ## Verifikation
 
@@ -35,7 +37,7 @@ Den vollständigen Plan `docs/PLAN.md` in `Auda29/-twincat-knowledge-mcp` inkrem
 
 ## Grenzen
 
-- Scope: Repository `Auda29/-twincat-knowledge-mcp`, zugehörige isolierte Worktrees und Testumgebungen.
+- Scope: Repository `Auda29/twincat-knowledge-mcp`, zugehörige isolierte Worktrees und Testumgebungen.
 - Repository bleibt privat. Keine öffentliche Registry oder öffentliche Releases.
 - Kein Projektfokus als Voraussetzung, kein ADS-/SPS-Schreibzugriff und keine Engineering-Aktionen.
 - Bring your own documentation: Ausgeliefert wird nur MCP-Software; Nutzer beschaffen und stellen InfoSys-/ESI-Dokumentation selbst bereit. Keine Weiterverteilung von Beckhoff-Dokumentation oder daraus erzeugten Wissenspaketen/Suchindizes durch das Projekt.
@@ -62,7 +64,7 @@ Nachdem das leichte Worker-Modell konfiguriert und überprüft wurde, in der Rep
 /goal Setze docs/PLAN.md in /home/hermes/workspace/-twincat-knowledge-mcp vollständig mit einem Agent-Swarm gemäß docs/GOAL.md um.
 verify: Erfülle jede Definition-of-Done-Bedingung aus docs/PLAN.md mit echten Tests, Installations-/MCP-/Hostnachweisen und verifizierten Artefakten. Blockierte oder übersprungene Kriterien bleiben offen.
 constraints: Leichtes verifiziertes Subagent-Modell, bevorzugt GPT Luna; maximal drei parallele Worker; TDD, getrennte Worktrees, unabhängige Review. Repo privat, keine SPS-Aktionen oder Weitergabe unfreigegebener Beckhoff-Daten.
-boundaries: Nur Auda29/-twincat-knowledge-mcp und zugehörige isolierte Tests/Worktrees; Implementierung über swarm/*-Branches und PRs; selbstständiger Merge erst nach unabhängiger Review und grüner CI, kein autonomes Release.
+boundaries: Nur Auda29/twincat-knowledge-mcp und zugehörige isolierte Tests/Worktrees; Implementierung über swarm/*-Branches und PRs; selbstständiger Merge erst nach unabhängiger Review und grüner CI, kein autonomes Release.
 stop when: Modellzugang, Datenfreigabe, notwendige Plattformtests oder zusätzliche Berechtigungen fehlen. Blocker konkret benennen, nicht als Produkterfolg melden.
 ```
 
