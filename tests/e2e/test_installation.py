@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import queue
 import shutil
 import subprocess
 import sys
+import threading
 import tomllib
 from pathlib import Path
 
@@ -60,6 +62,78 @@ def _run(
         )
     except subprocess.TimeoutExpired as exc:
         pytest.fail(f"subprocess timed out after {timeout:g}s: {args}: {exc}")
+
+
+class _InstalledServePipe:
+    def __init__(
+        self, command: list[str | Path], *, cwd: Path, env: dict[str, str]
+    ) -> None:
+        self.process = subprocess.Popen(
+            [str(arg) for arg in command],
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert self.process.stdin is not None
+        assert self.process.stdout is not None
+        self._lines: queue.Queue[str | None] = queue.Queue(maxsize=16)
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
+
+    def _read(self) -> None:
+        assert self.process.stdout is not None
+        for line in self.process.stdout:
+            self._lines.put(line)
+        self._lines.put(None)
+
+    def send(self, request: dict[str, object]) -> dict[str, object]:
+        assert self.process.stdin is not None
+        self.process.stdin.write(json.dumps(request) + "\n")
+        self.process.stdin.flush()
+        line = self._lines.get(timeout=30)
+        assert line is not None
+        return json.loads(line)
+
+    def close(self, *, timeout: float = 30.0) -> str:
+        assert self.process.stdin is not None
+        try:
+            self.process.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=timeout)
+        self._reader.join(timeout=timeout)
+        if self._reader.is_alive():
+            raise RuntimeError("installed stdio reader did not reach EOF")
+        assert self.process.stderr is not None
+        stderr = self.process.stderr.read()
+        assert self.process.returncode == 0, stderr
+        return stderr
+
+
+def _wire_request(request_id: int, method: str, **params: object) -> dict[str, object]:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
+        "params": {
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {
+                    "name": "installed-lifecycle",
+                    "version": "1",
+                },
+                "io.modelcontextprotocol/clientCapabilities": {},
+            },
+            **params,
+        },
+    }
 
 
 @pytest.mark.parametrize(
@@ -437,6 +511,181 @@ def test_wheel_installs_without_source_checkout(
     cache = operator_dir / "installed-package-cache"
     before = {p.name: p.read_bytes() for p in package.iterdir()}
     fingerprint = hashlib.sha256(before["manifest.json"]).hexdigest()
+    package_b = operator_dir / "installed-package-next"
+    before_b = {p.name: p.read_bytes() for p in package_b.iterdir()}
+    fingerprint_b = hashlib.sha256(before_b["manifest.json"]).hexdigest()
+    topic_a = json.loads(
+        (package / "topics.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
+    topic_b = json.loads(
+        (package_b / "topics.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
+    lifecycle_state = operator_dir / "serving-state"
+    lifecycle_cache = operator_dir / "serving-cache"
+    lifecycle_state.mkdir()
+    lifecycle_cache.mkdir()
+    lifecycle_env = env.copy()
+    activate_lifecycle = [
+        *_console_command(python, console_script),
+        "corpus",
+        "activate",
+        package,
+        "--expected-manifest-sha256",
+        fingerprint,
+        "--state-dir",
+        lifecycle_state,
+        "--cache-dir",
+        lifecycle_cache,
+        "--json",
+    ]
+    selected_lifecycle = _run(
+        activate_lifecycle, cwd=foreign_cwd, env=lifecycle_env, timeout=30
+    )
+    assert selected_lifecycle.returncode == 0, selected_lifecycle.stderr
+    assert (
+        json.loads(selected_lifecycle.stdout)["active"]["manifest_sha256"]
+        == fingerprint
+    )
+    source_bytes_before_lifecycle = {
+        package: {path.name: path.read_bytes() for path in package.iterdir()}
+        for package in (package, package_b)
+    }
+    serve_command = [
+        *_console_command(python, console_script),
+        "serve",
+        "--transport",
+        "stdio",
+        "--state-dir",
+        lifecycle_state,
+        "--cache-dir",
+        lifecycle_cache,
+    ]
+    server_a = _InstalledServePipe(serve_command, cwd=foreign_cwd, env=lifecycle_env)
+    server_b = None
+    server_restored = None
+    try:
+        search_a = server_a.send(
+            _wire_request(
+                1,
+                "tools/call",
+                name="tc_search",
+                arguments={"query": topic_a["title"]},
+            )
+        )
+        search_a_data = search_a["result"]["structuredContent"]
+        assert search_a_data["status"] == "ok"
+        assert search_a_data["data"]["items"][0]["id"] == topic_a["id"]
+        get_a = server_a.send(
+            _wire_request(
+                2,
+                "tools/call",
+                name="tc_get_topic",
+                arguments={"topic_id": topic_a["id"]},
+            )
+        )
+        get_a_data = get_a["result"]["structuredContent"]
+        assert get_a_data["status"] == "ok"
+        assert get_a_data["data"]["topic_id"] == topic_a["id"]
+        assert get_a_data["data"]["sections"]
+        assert any(
+            section.get("text") or section.get("code")
+            for section in get_a_data["data"]["sections"]
+        )
+
+        activate_b = activate_lifecycle.copy()
+        activate_b[activate_b.index(package)] = package_b
+        activate_b[activate_b.index(fingerprint)] = fingerprint_b
+        selected_b_lifecycle = _run(
+            activate_b, cwd=foreign_cwd, env=lifecycle_env, timeout=30
+        )
+        assert selected_b_lifecycle.returncode == 0, selected_b_lifecycle.stderr
+        assert (
+            json.loads(selected_b_lifecycle.stdout)["active"]["manifest_sha256"]
+            == fingerprint_b
+        )
+        held_a = server_a.send(
+            _wire_request(
+                3,
+                "tools/call",
+                name="tc_search",
+                arguments={"query": topic_a["title"]},
+            )
+        )
+        assert (
+            held_a["result"]["structuredContent"]["data"]["items"][0]["id"]
+            == topic_a["id"]
+        )
+        assert server_a.close() == ""
+        server_a = None
+
+        server_b = _InstalledServePipe(
+            serve_command, cwd=foreign_cwd, env=lifecycle_env
+        )
+        search_b = server_b.send(
+            _wire_request(
+                4,
+                "tools/call",
+                name="tc_search",
+                arguments={"query": topic_b["title"]},
+            )
+        )
+        assert (
+            search_b["result"]["structuredContent"]["data"]["items"][0]["id"]
+            == topic_b["id"]
+        )
+        assert server_b.close() == ""
+        server_b = None
+
+        rollback_lifecycle = _run(
+            [
+                *_console_command(python, console_script),
+                "corpus",
+                "rollback",
+                "--state-dir",
+                lifecycle_state,
+                "--cache-dir",
+                lifecycle_cache,
+                "--json",
+            ],
+            cwd=foreign_cwd,
+            env=lifecycle_env,
+            timeout=30,
+        )
+        assert rollback_lifecycle.returncode == 0, rollback_lifecycle.stderr
+        assert (
+            json.loads(rollback_lifecycle.stdout)["active"]["manifest_sha256"]
+            == fingerprint
+        )
+
+        server_restored = _InstalledServePipe(
+            serve_command, cwd=foreign_cwd, env=lifecycle_env
+        )
+        restored_a = server_restored.send(
+            _wire_request(
+                5,
+                "tools/call",
+                name="tc_search",
+                arguments={"query": topic_a["title"]},
+            )
+        )
+        assert (
+            restored_a["result"]["structuredContent"]["data"]["items"][0]["id"]
+            == topic_a["id"]
+        )
+    finally:
+        if server_a is not None:
+            server_a.close()
+        if server_b is not None:
+            server_b.close()
+        if server_restored is not None:
+            server_restored.close()
+    assert list(lifecycle_cache.iterdir()) == []
+    assert sorted(path.name for path in lifecycle_state.iterdir()) == ["active.json"]
+    assert {
+        package: {path.name: path.read_bytes() for path in package.iterdir()}
+        for package in (package, package_b)
+    } == source_bytes_before_lifecycle
+
     validation_command = [
         *_console_command(python, console_script),
         "corpus",

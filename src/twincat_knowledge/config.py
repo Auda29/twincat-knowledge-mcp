@@ -224,15 +224,12 @@ def load_optional_snapshot_settings(
     config: dict[str, Any] = {}
     config_base = Path.cwd()
     if config_path is not None:
+        raw_config_path = _nonempty_setting(os.fspath(config_path))
+        assert raw_config_path is not None
         try:
-            config_file = Path(config_path).expanduser().absolute()
+            config_file = Path(raw_config_path).expanduser().absolute()
             config_base = config_file.parent
-            try:
-                config_file.lstat()
-            except FileNotFoundError:
-                pass
-            else:
-                config = _load_snapshot_config(config_file)
+            config = _load_snapshot_config(config_file)
         except (OSError, RuntimeError, TypeError, ValueError):
             raise ConfigError("snapshot configuration could not be read") from None
         paths = config.get("paths")

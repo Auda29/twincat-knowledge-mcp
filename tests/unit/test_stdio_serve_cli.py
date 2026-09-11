@@ -23,9 +23,42 @@ def test_serve_defaults_to_stdio_and_accepts_operator_paths() -> None:
 
     assert args.command == "serve"
     assert args.transport == "stdio"
-    assert args.config == Path("config.toml")
-    assert args.state_dir == Path("state")
-    assert args.cache_dir == Path("cache")
+    assert args.config == "config.toml"
+    assert args.state_dir == "state"
+    assert args.cache_dir == "cache"
+
+
+def test_serve_parser_preserves_empty_explicit_path_text() -> None:
+    args = cli.build_parser().parse_args(
+        ["serve", "--config", "", "--state-dir", "", "--cache-dir", ""]
+    )
+
+    assert args.config == ""
+    assert args.state_dir == ""
+    assert args.cache_dir == ""
+
+
+@pytest.mark.parametrize("option", ["--config", "--state-dir", "--cache-dir"])
+def test_serve_rejects_empty_explicit_path(option: str, tmp_path: Path, capsys) -> None:
+    state = tmp_path / "state"
+    cache = tmp_path / "cache"
+    state.mkdir()
+    cache.mkdir()
+
+    arguments = ["serve", option, ""]
+    if option == "--config":
+        arguments.extend(["--state-dir", str(state), "--cache-dir", str(cache)])
+    elif option == "--state-dir":
+        arguments.extend(["--cache-dir", str(cache)])
+    else:
+        arguments.extend(["--state-dir", str(state)])
+
+    result = cli.main(arguments)
+    captured = capsys.readouterr()
+
+    assert result == 1
+    assert captured.out == ""
+    assert captured.err == "serve startup failed\n"
 
 
 def test_unconfigured_serve_starts_empty_service(monkeypatch) -> None:
@@ -43,11 +76,63 @@ def test_unconfigured_serve_starts_empty_service(monkeypatch) -> None:
     assert seen[0]._loaded is None
 
 
+def test_existing_empty_state_with_valid_cache_starts_empty_service(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state = tmp_path / "state"
+    cache = tmp_path / "cache"
+    state.mkdir()
+    cache.mkdir()
+    seen = []
+
+    def fake_run(service) -> None:
+        seen.append(service)
+
+    monkeypatch.setattr(
+        "twincat_knowledge.mcp_api.topic_server.run_topic_stdio", fake_run
+    )
+
+    assert (
+        cli.main(["serve", "--state-dir", str(state), "--cache-dir", str(cache)]) == 0
+    )
+    assert len(seen) == 1
+    assert seen[0]._loaded is None
+
+
 def test_serve_rejects_malformed_config_without_stdout(tmp_path: Path, capsys) -> None:
     config = tmp_path / "config.toml"
     config.write_text("[paths\n", encoding="utf-8")
 
     result = cli.main(["serve", "--config", str(config)])
+    captured = capsys.readouterr()
+
+    assert result == 1
+    assert captured.out == ""
+    assert captured.err == "serve startup failed\n"
+
+
+def test_serve_rejects_missing_explicit_config_even_with_valid_flags(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    state = tmp_path / "state"
+    cache = tmp_path / "cache"
+    state.mkdir()
+    cache.mkdir()
+    monkeypatch.setattr(
+        "twincat_knowledge.mcp_api.topic_server.run_topic_stdio", lambda service: None
+    )
+
+    result = cli.main(
+        [
+            "serve",
+            "--config",
+            str(tmp_path / "missing.toml"),
+            "--state-dir",
+            str(state),
+            "--cache-dir",
+            str(cache),
+        ]
+    )
     captured = capsys.readouterr()
 
     assert result == 1
