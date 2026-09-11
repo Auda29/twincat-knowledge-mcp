@@ -6,9 +6,12 @@ import importlib.metadata
 import json
 import os
 import sqlite3
+import stat
 import sys
 import tempfile
 import tomllib
+from collections.abc import Mapping
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +19,9 @@ DEFAULT_CONFIG = """# Local operator configuration for twincat-knowledge.
 [paths]
 # Set this to an approved, local corpus directory before serving.
 corpus = ""
+# Optional operator snapshot selection and private loader cache.
+state = ""
+cache = ""
 """
 
 
@@ -25,6 +31,160 @@ class ConfigError(ValueError):
 
 class ConfigFileExistsError(FileExistsError):
     """Raised when init would have to replace an existing path."""
+
+
+@dataclass(frozen=True, slots=True)
+class SnapshotSettings:
+    """Resolved operator paths for snapshot commands.
+
+    ``cache_dir`` is optional only for read-only state listing.  Activation,
+    rollback, and package loading require an existing cache directory.
+    """
+
+    state_dir: Path
+    cache_dir: Path | None
+
+
+_MAX_SNAPSHOT_CONFIG_BYTES = 64 * 1024
+_SNAPSHOT_STATE_ENV = "TCK_STATE_DIR"
+_SNAPSHOT_CACHE_ENV = "TCK_CACHE_DIR"
+
+
+def _snapshot_config_bytes(path: Path) -> bytes:
+    """Read a bounded regular TOML file without blocking on special files."""
+    descriptor: int | None = None
+    try:
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            raise OSError
+        if metadata.st_size > _MAX_SNAPSHOT_CONFIG_BYTES:
+            raise OSError
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        flags |= getattr(os, "O_NONBLOCK", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
+        opened = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(opened.st_mode)
+            or opened.st_size > _MAX_SNAPSHOT_CONFIG_BYTES
+        ):
+            raise OSError
+        expected_size = opened.st_size
+        payload = bytearray()
+        while len(payload) <= _MAX_SNAPSHOT_CONFIG_BYTES:
+            chunk = os.read(descriptor, _MAX_SNAPSHOT_CONFIG_BYTES - len(payload) + 1)
+            if not chunk:
+                break
+            payload.extend(chunk)
+            if len(payload) > _MAX_SNAPSHOT_CONFIG_BYTES:
+                raise OSError
+        if (
+            os.fstat(descriptor).st_size != expected_size
+            or len(payload) != expected_size
+        ):
+            raise OSError
+        return bytes(payload)
+    except (OSError, RuntimeError, ValueError):
+        raise ConfigError("snapshot configuration could not be read") from None
+    finally:
+        if descriptor is not None:
+            try:
+                os.close(descriptor)
+            except OSError:
+                pass
+
+
+def _load_snapshot_config(path: Path) -> dict[str, Any]:
+    try:
+        loaded = tomllib.loads(_snapshot_config_bytes(path).decode("utf-8"))
+    except ConfigError:
+        raise
+    except (UnicodeDecodeError, tomllib.TOMLDecodeError):
+        raise ConfigError("snapshot configuration could not be read") from None
+    if not isinstance(loaded, dict):
+        raise ConfigError("snapshot configuration could not be read")
+    return loaded
+
+
+def _nonempty_setting(value: object) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value or "\x00" in value:
+        raise ConfigError("snapshot configuration contains an invalid path")
+    return value
+
+
+def _resolve_snapshot_path(value: str, *, base: Path) -> Path:
+    try:
+        path = Path(value).expanduser()
+        if not path.is_absolute():
+            path = base / path
+        return path.absolute()
+    except (OSError, RuntimeError, TypeError, ValueError):
+        raise ConfigError("snapshot configuration contains an invalid path") from None
+
+
+def load_snapshot_settings(
+    config_path: str | os.PathLike[str] | None = None,
+    *,
+    state_dir: str | os.PathLike[str] | None = None,
+    cache_dir: str | os.PathLike[str] | None = None,
+    environ: Mapping[str, str] | None = None,
+    require_cache: bool = True,
+) -> SnapshotSettings:
+    """Resolve snapshot paths: flags, ``TCK_*``, then TOML.
+
+    The optional config is still parsed whenever supplied, even when flags or
+    environment values provide both paths.  Relative TOML paths are anchored
+    at the config directory; flag and environment paths use the current
+    working directory.  No legacy ``MCP_*`` variables or corpus fallback are
+    consulted.
+    """
+    environment = os.environ if environ is None else environ
+    config: dict[str, Any] = {}
+    config_base = Path.cwd()
+    if config_path is not None:
+        try:
+            config_file = Path(config_path)
+            config_base = config_file.expanduser().absolute().parent
+        except (OSError, RuntimeError, TypeError, ValueError):
+            raise ConfigError("snapshot configuration could not be read") from None
+        config = _load_snapshot_config(config_file)
+        paths = config.get("paths")
+        if paths is not None and not isinstance(paths, dict):
+            raise ConfigError("snapshot configuration paths must be a TOML table")
+        if isinstance(paths, dict):
+            config_state = _nonempty_setting(paths.get("state"))
+            config_cache = _nonempty_setting(paths.get("cache"))
+        else:
+            config_state = None
+            config_cache = None
+    else:
+        config_state = None
+        config_cache = None
+
+    explicit_state = _nonempty_setting(
+        os.fspath(state_dir) if state_dir is not None else None
+    )
+    explicit_cache = _nonempty_setting(
+        os.fspath(cache_dir) if cache_dir is not None else None
+    )
+    environment_state = _nonempty_setting(environment.get(_SNAPSHOT_STATE_ENV))
+    environment_cache = _nonempty_setting(environment.get(_SNAPSHOT_CACHE_ENV))
+    selected_state = explicit_state or environment_state or config_state
+    selected_cache = explicit_cache or environment_cache or config_cache
+
+    if selected_state is None or (require_cache and selected_cache is None):
+        raise ConfigError("snapshot paths are not configured")
+    state_base = Path.cwd() if explicit_state or environment_state else config_base
+    cache_base = Path.cwd() if explicit_cache or environment_cache else config_base
+    return SnapshotSettings(
+        state_dir=_resolve_snapshot_path(selected_state, base=state_base),
+        cache_dir=(
+            _resolve_snapshot_path(selected_cache, base=cache_base)
+            if selected_cache is not None
+            else None
+        ),
+    )
 
 
 def create_default_config(path: str | os.PathLike[str]) -> Path:
