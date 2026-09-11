@@ -40,11 +40,12 @@ normalized topic's raw metadata remains untouched.
   malformed, or oversized values make hierarchy unavailable; the value is
   never stripped or repaired. Duplicate parent metadata is unavailable even
   when both values are identical.
-- An order uses ASCII decimal digits only, with at most 8 lexical digits and a
-  numeric range of 1 through 10,000,000. Signs, floats, Unicode digits, zero,
-  and oversized values are not normalized. Missing, invalid, or duplicate
-  order preserves a valid parent but returns `toc_order=None` plus an enum
-  diagnostic.
+- An order uses ASCII decimal digits only, with at most 8 lexical digits and
+  an implementation resource bound of 1 through 10,000,000 for this extractor;
+  this is not a Microsoft Help Viewer format limit. Signs, floats, Unicode
+  digits, zero, and oversized values are not normalized. Missing, invalid, or
+  duplicate order preserves a valid parent but returns `toc_order=None` plus an
+  enum diagnostic.
 
 Diagnostics are `HierarchyDiagnosticCode` enum members, never raw metadata or
 exception text. Invalid `model_construct`/`model_copy` inputs are rebuilt
