@@ -402,3 +402,123 @@ def test_same_size_jsonl_change_prevents_manifest(tmp_path, monkeypatch):
     with pytest.raises(topic_package.TopicPackageValidationError):
         topic_package.build_topic_package(output, _manifest(topics), topics)
     assert not (output / "manifest.json").exists()
+
+
+@pytest.mark.parametrize("swap_at_open", [False, True])
+def test_public_build_rejects_fifo_without_blocking(tmp_path, swap_at_open):
+    import subprocess
+    import sys
+
+    if not hasattr(os, "mkfifo"):
+        pytest.skip("POSIX FIFO boundary")
+    script = r"""
+import os, runpy, sys
+from pathlib import Path
+ns = runpy.run_path(sys.argv[1])
+m = ns['topic_package']
+p = Path(sys.argv[2])
+topics = (ns['_topic'](),)
+original_create = m.create_topic_index
+original_open = os.open
+def create(path, records, **kwargs):
+    count = original_create(path, records, **kwargs)
+    jsonl = path.with_name('topics.jsonl')
+    if sys.argv[3] == 'True':
+        def swap(name, flags, *args, **kwargs):
+            if Path(name) == jsonl:
+                jsonl.unlink()
+                os.mkfifo(jsonl)
+            return original_open(name, flags, *args, **kwargs)
+        os.open = swap
+    else:
+        jsonl.unlink()
+        os.mkfifo(jsonl)
+    return count
+m.create_topic_index = create
+try:
+    m.build_topic_package(p, ns['_manifest'](topics), topics)
+except m.TopicPackagePathError:
+    assert not (p / 'manifest.json').exists()
+    print('rejected')
+else:
+    raise AssertionError('FIFO accepted')
+"""
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            script,
+            __file__,
+            str(tmp_path / "package"),
+            str(swap_at_open),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=3,
+    )
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "rejected"
+
+
+def test_index_hashing_enforces_artifact_ceiling(tmp_path, monkeypatch):
+    topics = (_topic(),)
+    monkeypatch.setattr(topic_package, "MAX_INDEX_BYTES", 1, raising=False)
+    output = tmp_path / "package"
+    with pytest.raises(topic_package.TopicPackageBoundsError):
+        topic_package.build_topic_package(output, _manifest(topics), topics)
+    assert not (output / "manifest.json").exists()
+
+
+def test_jsonl_growth_during_hashing_stops_at_original_size(tmp_path, monkeypatch):
+    topics = (_topic(),)
+    original_read = os.read
+    original_create = topic_package.create_topic_index
+    read_sizes = []
+    original_size = []
+
+    def create(path, records, **options):
+        count = original_create(path, records, **options)
+        jsonl = path.with_name("topics.jsonl")
+        metadata = jsonl.stat()
+        original_size.append(metadata.st_size)
+        changed = False
+
+        def grow(descriptor, size):
+            nonlocal changed
+            opened = os.fstat(descriptor)
+            if (opened.st_dev, opened.st_ino) == (metadata.st_dev, metadata.st_ino):
+                read_sizes.append(size)
+                if not changed:
+                    changed = True
+                    with jsonl.open("ab") as stream:
+                        stream.write(b" ")
+            return original_read(descriptor, size)
+
+        monkeypatch.setattr(os, "read", grow)
+        return count
+
+    monkeypatch.setattr(topic_package, "create_topic_index", create)
+    output = tmp_path / "package"
+    with pytest.raises(topic_package.TopicPackageBoundsError):
+        topic_package.build_topic_package(output, _manifest(topics), topics)
+    assert read_sizes and max(read_sizes) <= original_size[0] + 1
+    assert not (output / "manifest.json").exists()
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("format_version", "999"),
+        ("index_format", "not-sqlite"),
+        ("index_version", "999"),
+    ],
+)
+def test_public_manifest_rejects_unsupported_formats(tmp_path, field, value):
+    topics = (_topic(),)
+    result = topic_package.build_topic_package(
+        tmp_path / "package", _manifest(topics), topics
+    )
+    data = json.loads(result.manifest_path.read_bytes())
+    data[field] = value
+    with pytest.raises(ValidationError):
+        topic_package.TopicPackageManifest.model_validate_json(json.dumps(data))

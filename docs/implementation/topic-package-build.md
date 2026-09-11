@@ -87,3 +87,25 @@ Earlier worker installation failures while mapping the installed pydantic_core
 shared object did not reproduce with these test directories. They are not
 counted as passes from the earlier failed run. Independent package review and
 native CI for this component remain open.
+
+## Independent review follow-up
+
+The original review found a FIFO hang/unbounded hash loop and an unsupported
+manifest-format acceptance gap. The coordinator reproduced both before fixing:
+
+- Two real POSIX FIFO subprocess timeouts, including replacement at open, now
+  reject without blocking. Artifact collection uses lstat regular-file checks,
+  nonblocking open where available, no-follow where available, and a descriptor
+  regular-file check. Descriptor cleanup is retained on rejection.
+- JSONL hash reads stop at the original exported byte count plus a single
+  over-limit sentinel byte; SQLite hash reads have a separate 512 MiB ceiling
+  (`MAX_INDEX_BYTES`). Both fstat preflight and incremental growth are checked.
+  This is a hashing/publication limit, not a disk quota during SQLite creation
+  or a deadline for network-filesystem I/O. A build exceeding it fails without
+  publishing its final marker and may retain incomplete artifacts as above.
+- Public manifest validation rejects unsupported package format, index format,
+  and index schema version, not merely when a future loader checks them.
+
+Coordinator verification after these fixes: 27 package tests and 211 full tests
+passed on each of CPython 3.12.10 and 3.13.12; Ruff check/format and mypy passed.
+Independent delta follow-up and native CI for this new revision remain open.

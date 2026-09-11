@@ -51,6 +51,7 @@ from .topic_validation import (
 FORMAT_VERSION: Final = "1.0"
 INDEX_FORMAT: Final = "sqlite-fts5"
 INDEX_VERSION: Final = SCHEMA_VERSION
+MAX_INDEX_BYTES: Final = 512 * 1024 * 1024
 _SHA256 = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 _NONNEGATIVE = Annotated[int, Field(strict=True, ge=0)]
 _COUNT = Annotated[int, Field(strict=True, ge=0, le=MAX_TOPICS)]
@@ -117,6 +118,12 @@ class TopicPackageManifest(StrictModel):
 
     @model_validator(mode="after")
     def validate_fixed_descriptor(self) -> TopicPackageManifest:
+        if (
+            self.format_version != FORMAT_VERSION
+            or self.index_format != INDEX_FORMAT
+            or self.index_version != str(INDEX_VERSION)
+        ):
+            raise ValueError("unsupported package or index format")
         names = tuple(file.filename for file in self.files)
         if names != ("topics.jsonl", "topics.sqlite"):
             raise ValueError("package files must be topics.jsonl and topics.sqlite")
@@ -201,25 +208,29 @@ def _check_manifest(manifest: CorpusManifest) -> None:
         ) from None
 
 
-def _artifact_facts(path: Path) -> tuple[int, str]:
+def _artifact_facts(path: Path, *, max_bytes: int) -> tuple[int, str]:
     descriptor: int | None = None
     try:
-        if path.is_symlink():
-            raise TopicPackagePathError("package artifact must not be a symlink")
-        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0)
+        if not stat.S_ISREG(path.lstat().st_mode):
+            raise TopicPackagePathError("package artifact must be a regular file")
+        flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NONBLOCK", 0)
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         descriptor = os.open(path, flags)
         metadata = os.fstat(descriptor)
         if not stat.S_ISREG(metadata.st_mode):
             raise TopicPackagePathError("package artifact must be a regular file")
+        if metadata.st_size > max_bytes:
+            raise TopicPackageBoundsError("package artifact byte bound exceeded")
         digest = hashlib.sha256()
         total = 0
         while True:
-            chunk = os.read(descriptor, 1024 * 1024)
+            chunk = os.read(descriptor, min(1024 * 1024, max_bytes - total + 1))
             if not chunk:
                 break
             total += len(chunk)
+            if total > max_bytes:
+                raise TopicPackageBoundsError("package artifact byte bound exceeded")
             digest.update(chunk)
         return total, digest.hexdigest()
     except TopicPackageError:
@@ -366,8 +377,10 @@ def build_topic_package(
             if any(index.get_topic(topic.id) != topic for topic in reloaded):
                 raise TopicPackageValidationError("topic index does not match JSONL")
 
-        jsonl_bytes, jsonl_sha = _artifact_facts(jsonl_path)
-        sqlite_bytes, sqlite_sha = _artifact_facts(sqlite_path)
+        jsonl_bytes, jsonl_sha = _artifact_facts(jsonl_path, max_bytes=exported.bytes)
+        sqlite_bytes, sqlite_sha = _artifact_facts(
+            sqlite_path, max_bytes=MAX_INDEX_BYTES
+        )
         if jsonl_bytes != exported.bytes or jsonl_sha != exported.sha256:
             raise TopicPackageValidationError("JSONL changed during package build")
         package_manifest = TopicPackageManifest(
@@ -408,6 +421,7 @@ __all__ = [
     "FORMAT_VERSION",
     "INDEX_FORMAT",
     "INDEX_VERSION",
+    "MAX_INDEX_BYTES",
     "TopicPackageBuildResult",
     "TopicPackageBoundsError",
     "TopicPackageError",
