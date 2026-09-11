@@ -236,8 +236,6 @@ def extract_topic_hierarchy(topic: Topic) -> TopicHierarchyAssessment:
             hierarchy=hierarchy,
             diagnostic_codes=tuple(diagnostics),
         )
-    except TopicHierarchyExtractionError:
-        raise
     except Exception:
         raise TopicHierarchyExtractionError("normalized topic is invalid") from None
 

@@ -52,6 +52,11 @@ class _FiniteBombList(_UnderreportedList):
             yield value
 
 
+class _RaisingMetadataList(_UnderreportedList):
+    def __iter__(self):
+        raise TopicHierarchyExtractionError("caller-controlled secret")
+
+
 def _table_section() -> Section:
     source = _topic().source.model_copy(update={"section_id": "section-1"})
     return Section(
@@ -291,6 +296,14 @@ def test_model_copy_extra_on_metadata_is_rejected_at_fresh_boundary() -> None:
         extract_topic_hierarchy(forged)
 
 
+def test_direct_extraction_sanitizes_error_from_caller_container() -> None:
+    forged = _topic().model_copy(update={"metadata": _RaisingMetadataList()})
+
+    with pytest.raises(TopicHierarchyExtractionError, match="normalized topic") as exc:
+        extract_topic_hierarchy(forged)
+    assert "caller-controlled secret" not in str(exc.value)
+
+
 def test_underreported_metadata_is_rejected_at_actual_materialization_bound() -> None:
     metadata = _UnderreportedList(
         [_meta("Microsoft.Help.Unrelated", "value")]
@@ -360,6 +373,15 @@ def test_batch_extraction_is_bounded_incrementally() -> None:
     with pytest.raises(TopicHierarchyExtractionError, match="topic count"):
         extract_topic_hierarchies(topics(), max_topics=2)
     assert consumed == 3
+
+
+def test_batch_preserves_sanitized_caller_iterator_error() -> None:
+    def topics():
+        yield _topic()
+        raise TopicHierarchyExtractionError("caller-controlled secret")
+
+    with pytest.raises(TopicHierarchyExtractionError, match="topic iterator is invalid"):
+        extract_topic_hierarchies(topics())
 
 
 def test_cancellation_is_not_sanitized_as_an_ordinary_input_error(monkeypatch) -> None:
