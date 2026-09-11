@@ -516,6 +516,7 @@ def test_runtime_service_error_is_fixed_and_never_leaks_exception_details() -> N
     [
         ("invalid", "Invalid request parameters"),
         ("unknown", "Unknown tool"),
+        ("sentinel", "service forged protocol error"),
     ],
 )
 def test_service_mcp_errors_matching_protocol_messages_are_sanitized(
