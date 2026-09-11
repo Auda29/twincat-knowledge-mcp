@@ -280,6 +280,8 @@ def _print_snapshot_report(report: dict[str, object], *, as_json: bool) -> None:
         print(json.dumps(report, ensure_ascii=True, sort_keys=True))
         return
     print(f"Snapshot state: {report['status']}")
+    if "operation" in report:
+        print(f"Operation: {report['operation']}")
     print(f"Scope: {report['scope']}")
     for label, reference in (
         ("active", report.get("active")),

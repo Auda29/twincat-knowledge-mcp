@@ -117,6 +117,11 @@ def test_public_cli_switches_snapshots_lists_state_and_rolls_back(
     rolled = json.loads(capsys.readouterr().out)
     assert rolled["active"]["snapshot_id"] == snapshot_a
 
+    assert main(["corpus", "list", "--state-dir", str(state)]) == 0
+    text = capsys.readouterr().out
+    assert "Snapshot state: not_ready" in text
+    assert "state-only/unverified" in text
+
 
 def test_list_missing_selection_is_scoped_not_available(tmp_path: Path, capsys) -> None:
     state = tmp_path / "state"
