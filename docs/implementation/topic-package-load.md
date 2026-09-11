@@ -72,3 +72,21 @@ The loader's hashes are corruption/integrity checks, not an authentication or
 sandbox boundary. A malicious same-account operator can still modify the
 source or cache while the loader is running; network-filesystem deadlines,
 activation, rollback, and full-host authorization remain outside this slice.
+
+## Coordinator API and cache-boundary corrections
+
+The public call now returns a fully validated `LoadedTopicPackage` immediately,
+not a deferred generator context manager. Direct access plus explicit `close()`
+and `with` both work. Exceptions from the caller's `with` body retain their
+original identity instead of being translated into load failures. Two regression
+tests demonstrated the prior API mismatch and exception reclassification.
+
+The outside-package cache rule compares resolved physical paths, not lexical
+path prefixes. Two regressions demonstrated that symlinked ancestors on either
+the package or cache side could otherwise place the private cache inside the
+source package. Both now reject before cache creation. This check does not
+claim protection against hostile concurrent parent-directory replacement.
+
+Coordinator verification: 21 focused loader tests and 232 full tests passed on
+each of CPython 3.12.10 and 3.13.12 with external pytest basetemps; Ruff check,
+format, and mypy passed. Independent review and native CI remain open.

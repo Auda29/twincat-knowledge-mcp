@@ -8,8 +8,6 @@ import os
 import re
 import sqlite3
 import stat
-from collections.abc import Iterator
-from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Final, NoReturn, Self, cast
@@ -82,7 +80,7 @@ def _check_paths(package: Path, cache_dir: Path) -> None:
     _regular_directory(package, "topic package directory is unavailable")
     _regular_directory(cache_dir, "operator cache directory is unavailable")
     try:
-        if cache_dir.is_relative_to(package):
+        if cache_dir.resolve(strict=True).is_relative_to(package.resolve(strict=True)):
             _error(
                 "operator cache directory must be outside the topic package",
                 TopicPackageLoadPathError,
@@ -394,13 +392,12 @@ class LoadedTopicPackage:
         self.close()
 
 
-@contextmanager
 def _load_topic_package(
     path: Path,
     *,
     expected_manifest_sha256: str,
     cache_dir: Path,
-) -> Iterator[LoadedTopicPackage]:
+) -> LoadedTopicPackage:
     """Verify fixed package artifacts into a private cache and serve them read-only.
 
     The caller-supplied manifest fingerprint is an exact lowercase hexadecimal
@@ -467,15 +464,13 @@ def _load_topic_package(
         loaded = LoadedTopicPackage(manifest, summary, index, cleanup)
         cleanup = None
         index = None
-        yield loaded
+        return loaded
     except TopicPackageLoadError:
         raise
     except Exception:
         _error("topic package load failed")
     finally:
-        if loaded is not None:
-            loaded.close()
-        else:
+        if loaded is None:
             if index is not None:
                 try:
                     index.__exit__(None, None, None)
@@ -493,8 +488,8 @@ def load_topic_package(
     *,
     expected_manifest_sha256: str,
     cache_dir: Path,
-) -> AbstractContextManager[LoadedTopicPackage]:
-    """Return a context manager after validating the exact manifest pin."""
+) -> LoadedTopicPackage:
+    """Load and verify a resource; close it explicitly or use it with ``with``."""
     if not isinstance(expected_manifest_sha256, str) or not _SHA256_RE.fullmatch(
         expected_manifest_sha256
     ):

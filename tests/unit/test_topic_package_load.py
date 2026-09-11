@@ -460,3 +460,60 @@ def test_artifact_hash_mismatch_is_rejected_before_sqlite_open(
             pass
     assert not opened
     assert tuple(cache.iterdir()) == ()
+
+
+def test_load_returns_usable_resource_without_enter(tmp_path):
+    from twincat_knowledge.corpus.topic_package_load import LoadedTopicPackage
+
+    package, fingerprint = _package(tmp_path)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    loaded = load_topic_package(
+        package, expected_manifest_sha256=fingerprint, cache_dir=cache
+    )
+    assert isinstance(loaded, LoadedTopicPackage)
+    try:
+        assert loaded.index.get_topic(_topic().id) == _topic()
+        assert loaded.summary.topic_count == 1
+    finally:
+        loaded.close()
+    loaded.close()
+    assert list(cache.iterdir()) == []
+
+
+def test_caller_exception_is_not_reclassified_as_load_error(tmp_path):
+    package, fingerprint = _package(tmp_path)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    failure = ValueError("caller failure")
+    with pytest.raises(ValueError) as caught:
+        with load_topic_package(
+            package, expected_manifest_sha256=fingerprint, cache_dir=cache
+        ):
+            raise failure
+    assert caught.value is failure
+    assert list(cache.iterdir()) == []
+
+
+@pytest.mark.parametrize("alias_side", ["cache", "package"])
+def test_cache_cannot_alias_a_directory_inside_source(tmp_path, alias_side):
+    from twincat_knowledge.corpus.topic_package_load import TopicPackageLoadPathError
+
+    package, fingerprint = _package(tmp_path)
+    inside = package / "cache"
+    inside.mkdir()
+    alias = tmp_path / "alias"
+    try:
+        alias.symlink_to(
+            package if alias_side == "cache" else tmp_path, target_is_directory=True
+        )
+    except OSError:
+        pytest.skip("directory symlinks unavailable on this test host")
+    cache = alias / "cache" if alias_side == "cache" else inside
+    source = package if alias_side == "cache" else alias / "package"
+    with pytest.raises(TopicPackageLoadPathError):
+        with load_topic_package(
+            source, expected_manifest_sha256=fingerprint, cache_dir=cache
+        ):
+            pass
+    assert list(inside.iterdir()) == []
