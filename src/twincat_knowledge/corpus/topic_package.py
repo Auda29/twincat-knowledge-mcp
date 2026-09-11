@@ -52,6 +52,7 @@ FORMAT_VERSION: Final = "1.0"
 INDEX_FORMAT: Final = "sqlite-fts5"
 INDEX_VERSION: Final = SCHEMA_VERSION
 MAX_INDEX_BYTES: Final = 512 * 1024 * 1024
+MAX_MANIFEST_BYTES: Final = 16 * 1024 * 1024
 _SHA256 = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 _NONNEGATIVE = Annotated[int, Field(strict=True, ge=0)]
 _COUNT = Annotated[int, Field(strict=True, ge=0, le=MAX_TOPICS)]
@@ -406,6 +407,8 @@ def build_topic_package(
             index_version=str(INDEX_VERSION),
         )
         descriptor = (package_manifest.model_dump_json() + "\n").encode("utf-8")
+        if len(descriptor) > MAX_MANIFEST_BYTES:
+            raise TopicPackageBoundsError("package manifest byte bound exceeded")
         manifest_sha = hashlib.sha256(descriptor).hexdigest()
         _publish_manifest(output, descriptor)
         return TopicPackageBuildResult(
@@ -422,6 +425,7 @@ __all__ = [
     "INDEX_FORMAT",
     "INDEX_VERSION",
     "MAX_INDEX_BYTES",
+    "MAX_MANIFEST_BYTES",
     "TopicPackageBuildResult",
     "TopicPackageBoundsError",
     "TopicPackageError",
