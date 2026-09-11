@@ -10,6 +10,13 @@ from typing import Literal, TypeVar, cast
 
 from pydantic import BaseModel
 
+from twincat_knowledge.corpus.topic_hierarchy_graph import (
+    GraphDiagnosticCode,
+    TopicHierarchyGraph,
+    TopicHierarchyGraphError,
+    TopicHierarchyNode,
+    build_topic_hierarchy_graph,
+)
 from twincat_knowledge.corpus.topic_index import MAX_SEARCH_OFFSET
 from twincat_knowledge.corpus.topic_package_load import (
     LoadedTopicPackage,
@@ -19,6 +26,10 @@ from twincat_knowledge.domain.provenance import SourceReference
 from twincat_knowledge.domain.topics import Section, Topic
 
 from .query_contracts import (
+    BrowseBreadcrumbItem,
+    BrowseTopicItem,
+    BrowseTopicsData,
+    BrowseTopicsInput,
     CorpusStatusData,
     CorpusStatusInput,
     GetTopicInput,
@@ -118,6 +129,8 @@ class TopicQueryService:
     def __init__(self, loaded: LoadedTopicPackage | None) -> None:
         self._loaded = loaded
         self._cursor = QueryCursor(secrets.token_bytes(32))
+        self._browse_graph: TopicHierarchyGraph | None = None
+        self._browse_generation: str | None = None
 
     def _generation(self) -> str:
         assert self._loaded is not None
@@ -226,6 +239,211 @@ class TopicQueryService:
             snapshot_id is None
             or snapshot_id == self._loaded.manifest.corpus_manifest.snapshot_id
         )
+
+    def _topic_graph(self, generation: str) -> TopicHierarchyGraph:
+        """Build one graph from the already verified, caller-owned index view."""
+        if self._browse_graph is not None and self._browse_generation == generation:
+            return self._browse_graph
+        assert self._loaded is not None
+        connection = getattr(self._loaded.index, "_connection", None)
+        if connection is None:
+            raise TopicHierarchyGraphError("verified topic index is unavailable")
+        rows = None
+        try:
+            rows = connection.execute("SELECT payload FROM topics ORDER BY id")
+            topics = tuple(Topic.model_validate_json(row[0]) for row in rows)
+        except Exception:
+            raise TopicHierarchyGraphError(
+                "verified topic graph could not be read"
+            ) from None
+        finally:
+            if rows is not None:
+                rows.close()
+        graph = build_topic_hierarchy_graph(topics)
+        self._browse_graph = graph
+        self._browse_generation = generation
+        return graph
+
+    @staticmethod
+    def _browse_hierarchy(
+        node: TopicHierarchyNode,
+    ) -> Literal["available", "unknown", "unresolved", "ambiguous"]:
+        diagnostics = node.diagnostics
+        codes = {item.code for item in diagnostics}
+        if GraphDiagnosticCode.HIERARCHY_UNKNOWN in codes:
+            return "unknown"
+        if GraphDiagnosticCode.AMBIGUOUS_PARENT in codes:
+            return "ambiguous"
+        if GraphDiagnosticCode.UNRESOLVED_PARENT in codes:
+            return "unresolved"
+        return "available"
+
+    def _browse_item(
+        self, graph: TopicHierarchyGraph, node: TopicHierarchyNode
+    ) -> tuple[BrowseTopicItem, tuple[SourceCitation, ...]]:
+        breadcrumb = graph.breadcrumb(node.canonical_id)
+        if breadcrumb is None:
+            raise TopicHierarchyGraphError("topic breadcrumb is unavailable")
+        crumbs = tuple(
+            BrowseBreadcrumbItem(topic_id=item.canonical_id, title=item.topic.title)
+            for item in breadcrumb.items
+        )
+        item = BrowseTopicItem(
+            topic_id=node.canonical_id,
+            original_topic_id=node.original_topic_id,
+            title=node.topic.title,
+            language=node.topic.language,
+            library=node.topic.library,
+            parent_topic_id=node.parent_canonical_id,
+            hierarchy=self._browse_hierarchy(node),
+            order=node.toc_order,
+            order_available=node.toc_order is not None,
+            order_tied=node.order_tied,
+            ordering=node.ordering,
+            breadcrumb=crumbs,
+            source=self._source(node.topic.source),
+        )
+        return item, _unique_sources(
+            self._source(crumb.topic.source) for crumb in breadcrumb.items
+        )
+
+    def browse_topics(
+        self, request: BrowseTopicsInput
+    ) -> ResponseEnvelope[BrowseTopicsData]:
+        """Return roots or direct explicit children, never recursive topic bodies."""
+        validated_request = _validated_request(BrowseTopicsInput, request)
+        if validated_request is None:
+            return self._error("invalid browse input")
+        request = validated_request
+        if self._loaded is None:
+            return self._not_available("validated topic corpus is not available")
+        filters = request.filters
+        if filters is not None:
+            for field in ("product_family", "documented_version", "device_revision"):
+                if getattr(filters, field) is not None:
+                    return self._error(f"unsupported filter: {field}")
+        try:
+            generation = self._generation()
+            if not self._package_snapshot_filter(
+                None if filters is None else filters.snapshot_id
+            ):
+                return self._envelope("not_found")
+            graph = self._topic_graph(generation)
+            if not graph.has_hierarchy:
+                return self._not_available("topic hierarchy is not available")
+            if request.parent_topic_id is None:
+                candidates = graph.roots()
+            else:
+                parent = graph.get_node(request.parent_topic_id)
+                if parent is None:
+                    return self._envelope("not_found")
+                candidates = graph.direct_children(parent.canonical_id)
+            language = None if filters is None else filters.language
+            library = None if filters is None else filters.library_id
+            if language == "any":
+                language = None
+            candidates = tuple(
+                node
+                for node in candidates
+                if (language is None or node.topic.language == language)
+                and (library is None or node.topic.library == library)
+            )
+            filter_payload = {
+                "parent_topic_id": request.parent_topic_id,
+                "filters": _filters_payload(filters),
+            }
+            position = 0
+            if request.cursor is not None:
+                state = self._cursor.decode(
+                    request.cursor,
+                    tool="tc_browse_topics",
+                    generation=generation,
+                    query=request.parent_topic_id,
+                    filters=filter_payload,
+                    selected_sections=None,
+                    limit=request.limit,
+                )
+                position = state.position
+            if position > len(candidates):
+                return self._error("browse cursor is outside the topic range")
+            page: list[BrowseTopicItem] = []
+            page_sources: list[SourceCitation] = []
+            next_cursor: str | None = None
+            for node in candidates[position : position + request.limit]:
+                item, item_sources = self._browse_item(graph, node)
+                page.append(item)
+                page_sources.extend(item_sources)
+                has_more = position + len(page) < len(candidates)
+                candidate_cursor = None
+                if has_more:
+                    candidate_cursor = self._cursor.encode(
+                        tool="tc_browse_topics",
+                        generation=generation,
+                        query=request.parent_topic_id,
+                        filters=filter_payload,
+                        selected_sections=None,
+                        limit=request.limit,
+                        position=position + len(page),
+                    )
+                candidate = self._envelope(
+                    "ok",
+                    BrowseTopicsData(
+                        items=tuple(page),
+                        total=None,
+                        has_more=has_more,
+                        parent_topic_id=request.parent_topic_id,
+                        applied_filters=filters,
+                        hierarchy_available=True,
+                    ),
+                    sources=_unique_sources(page_sources),
+                    warnings=(
+                        ("hierarchy is present but no explicit root is resolvable",)
+                        if request.parent_topic_id is None and not graph.roots()
+                        else ()
+                    ),
+                    truncated=has_more,
+                    next_cursor=candidate_cursor,
+                )
+                if not self._fits(candidate):
+                    page.pop()
+                    del page_sources[-len(item_sources) :]
+                    break
+                next_cursor = candidate_cursor
+            if not page and position < len(candidates):
+                return self._error("browse record exceeds the response bound")
+            has_more = position + len(page) < len(candidates)
+            if not has_more:
+                next_cursor = None
+            warnings = (
+                ("hierarchy is present but no explicit root is resolvable",)
+                if request.parent_topic_id is None and not graph.roots()
+                else ()
+            )
+            status = (
+                "ok" if page or request.parent_topic_id is not None else "not_found"
+            )
+            result = self._envelope(
+                status,
+                BrowseTopicsData(
+                    items=tuple(page),
+                    total=None,
+                    has_more=has_more,
+                    parent_topic_id=request.parent_topic_id,
+                    applied_filters=filters,
+                    hierarchy_available=True,
+                ),
+                sources=_unique_sources(page_sources),
+                warnings=warnings,
+                truncated=has_more,
+                next_cursor=next_cursor,
+            )
+            if not self._fits(result):
+                return self._error("browse result exceeds the response bound")
+            return result
+        except (CursorError, TopicHierarchyGraphError):
+            return self._error("topic browse failed")
+        except Exception:
+            return self._error("topic browse failed")
 
     def _fits(self, response: object) -> bool:
         return _json_bytes(response) <= MAX_DOMAIN_RESPONSE_BYTES

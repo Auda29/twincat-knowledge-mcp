@@ -5,6 +5,26 @@ one caller-owned `LoadedTopicPackage`. It is not an MCP server or transport
 adapter. The caller supplies either a validated loaded handle or `None`; the
 service never loads, reloads, activates, or closes that handle.
 
+## Browse
+
+`browse_topics` exposes only explicit roots or direct resolved children. It returns
+canonical topic IDs, titles, language/library, parent ID, hierarchy/order
+availability, bounded identity-only breadcrumbs, and source citations; it never
+returns topic bodies. A missing corpus or a package with no usable hierarchy is
+`not_available`. An unknown parent ID is `not_found`, while a known parent with
+no resolved children is an `ok` response with an empty item tuple. A hierarchy
+with no resolvable explicit roots is an empty `not_found` root response with a
+diagnostic warning, not an assertion that the corpus has no topics.
+
+Browse accepts the package snapshot ID, `language`, and exact topic `library_id`
+filters. Other existing filter fields are rejected explicitly. Snapshot filtering
+uses package identity; graph parent resolution still retains each topic's
+original `(source_id, snapshot_id, language)` scope. A breadcrumb may therefore
+contain an ancestor outside the listing filter, because it is context rather than
+an additional filtered result. Siblings use explicit `TocOrder` when available;
+ties and missing order are deterministically resolved by canonical ID and marked
+as technical ordering.
+
 ## Contracts
 
 `SearchInput`, `GetTopicInput`, and `CorpusStatusInput` are frozen, strict

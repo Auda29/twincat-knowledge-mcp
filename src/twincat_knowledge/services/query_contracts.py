@@ -73,10 +73,20 @@ class CorpusStatusInput(_QueryInput):
     detail: Literal["summary", "coverage"] = "summary"
 
 
+class BrowseTopicsInput(_QueryInput):
+    """Strict request for roots or one level of explicit topic children."""
+
+    parent_topic_id: StrictStr | None = Field(
+        default=None, min_length=1, max_length=256
+    )
+    filters: QueryFilters | None = None
+
+
 # Descriptive aliases make the three top-level contracts discoverable without
 # creating alternate request envelopes.
 TopicSearchInput = SearchInput
 TopicGetInput = GetTopicInput
+TopicBrowseInput = BrowseTopicsInput
 GetCorpusStatusInput = CorpusStatusInput
 
 
@@ -182,6 +192,40 @@ class CorpusStatusData(StrictModel):
     inventory: StatusInventory
 
 
+class BrowseBreadcrumbItem(StrictModel):
+    """The bounded identity/title projection of one breadcrumb node."""
+
+    topic_id: StrictStr = Field(min_length=1, max_length=256)
+    title: StrictStr = Field(max_length=4_096)
+
+
+class BrowseTopicItem(StrictModel):
+    """A topic tree row; article bodies are intentionally absent."""
+
+    topic_id: StrictStr = Field(min_length=1, max_length=256)
+    original_topic_id: StrictStr | None = Field(default=None, max_length=512)
+    title: StrictStr = Field(max_length=4_096)
+    language: Literal["de", "en"]
+    library: StrictStr = Field(min_length=1, max_length=256)
+    parent_topic_id: StrictStr | None = Field(default=None, max_length=256)
+    hierarchy: Literal["available", "unknown", "unresolved", "ambiguous"]
+    order: int | None = Field(default=None, strict=True, ge=1)
+    order_available: bool
+    order_tied: bool
+    ordering: Literal["toc_order", "technical_canonical_id"]
+    breadcrumb: tuple[BrowseBreadcrumbItem, ...]
+    source: SourceCitation
+
+
+class BrowseTopicsData(StrictModel):
+    items: tuple[BrowseTopicItem, ...]
+    total: int | None = Field(default=None, strict=True, ge=0)
+    has_more: bool
+    parent_topic_id: StrictStr | None = Field(default=None, max_length=256)
+    applied_filters: QueryFilters | None = None
+    hierarchy_available: bool
+
+
 T = TypeVar("T")
 
 
@@ -201,11 +245,17 @@ class ResponseEnvelope(StrictModel, Generic[T]):  # noqa: UP046
 SearchResponse = ResponseEnvelope[SearchData]
 TopicResponse = ResponseEnvelope[TopicData]
 CorpusStatusResponse = ResponseEnvelope[CorpusStatusData]
+BrowseTopicsResponse = ResponseEnvelope[BrowseTopicsData]
 
 __all__ = [
     "CorpusStatusData",
     "CorpusStatusInput",
     "CorpusStatusResponse",
+    "BrowseBreadcrumbItem",
+    "BrowseTopicItem",
+    "BrowseTopicsData",
+    "BrowseTopicsInput",
+    "BrowseTopicsResponse",
     "GetCorpusStatusInput",
     "GetTopicInput",
     "LanguageCount",
@@ -220,6 +270,7 @@ __all__ = [
     "SourceCitation",
     "StatusInventory",
     "StatusSource",
+    "TopicBrowseInput",
     "TopicData",
     "TopicGetInput",
     "TopicMetadataData",
