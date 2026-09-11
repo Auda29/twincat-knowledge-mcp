@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import sys
 from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
@@ -324,15 +325,28 @@ class TopicIndex:
         connection = self._connection_or_raise()
         cursor: sqlite3.Cursor | None = None
         try:
-            cursor = connection.execute(
-                "SELECT payload, length(CAST(payload AS BLOB)) "
-                "FROM topics ORDER BY id ASC LIMIT ?",
-                (limit + 1,),
-            )
+            try:
+                cursor = connection.execute(
+                    "SELECT payload, length(CAST(payload AS BLOB)) "
+                    "FROM topics ORDER BY id ASC LIMIT ?",
+                    (limit + 1,),
+                )
+            except sqlite3.Error as exc:
+                raise TopicIndexError("topic index iteration failed") from exc
 
             def stream() -> Iterator[Topic]:
                 count = 0
-                for payload, payload_bytes in cursor:
+                try:
+                    rows = iter(cursor)
+                except sqlite3.Error as exc:
+                    raise TopicIndexError("topic index iteration failed") from exc
+                while True:
+                    try:
+                        payload, payload_bytes = next(rows)
+                    except StopIteration:
+                        return
+                    except sqlite3.Error as exc:
+                        raise TopicIndexError("topic index iteration failed") from exc
                     count += 1
                     if count > limit:
                         raise TopicIndexBoundsError(
@@ -356,11 +370,14 @@ class TopicIndex:
                     yield topic
 
             yield stream()
-        except sqlite3.Error as exc:
-            raise TopicIndexError("topic index iteration failed") from exc
         finally:
             if cursor is not None:
-                cursor.close()
+                caller_exception = sys.exc_info()[1]
+                try:
+                    cursor.close()
+                except sqlite3.Error as exc:
+                    if caller_exception is None:
+                        raise TopicIndexError("topic index iteration failed") from exc
 
     def get_topic(self, topic_id: str) -> Topic | None:
         if not isinstance(topic_id, str):

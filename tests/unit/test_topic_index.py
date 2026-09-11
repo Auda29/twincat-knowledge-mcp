@@ -363,22 +363,51 @@ def test_iter_topics_is_bounded_sorted_and_context_managed(tmp_path: Path) -> No
             index.iter_topics(max_topics=True)  # type: ignore[arg-type]
 
 
-def test_iter_topics_preserves_caller_exception_and_closes_before_index(
-    tmp_path: Path,
+def test_iter_topics_preserves_caller_sqlite_error_and_closes_cursor(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     path = tmp_path / "iter-exception.sqlite"
     create_topic_index(path, [_topic()])
 
-    class CallerFailure(Exception):
-        pass
+    real_connect = sqlite3.connect
+    tracked_connections: list[sqlite3.Connection] = []
+
+    class TrackingConnection(sqlite3.Connection):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.executed: list[tuple[str, sqlite3.Cursor]] = []
+
+        def execute(self, sql, parameters=(), /):
+            cursor = super().execute(sql, parameters)
+            self.executed.append((sql, cursor))
+            return cursor
+
+    def connect(*args, **kwargs):
+        kwargs["factory"] = TrackingConnection
+        connection = real_connect(*args, **kwargs)
+        tracked_connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(topic_index.sqlite3, "connect", connect)
 
     with TopicIndex(path) as index:
-        failure = CallerFailure("caller secret")
-        with pytest.raises(CallerFailure) as caught:
+        failure = sqlite3.OperationalError("caller secret")
+        with pytest.raises(sqlite3.OperationalError) as caught:
             with index.iter_topics() as stream:
                 next(stream)
                 raise failure
         assert caught.value is failure
+        assert str(caught.value) == "caller secret"
+
+    index_connection = tracked_connections[-1]
+    stream_cursors = [
+        cursor
+        for sql, cursor in index_connection.executed
+        if "SELECT payload, length(CAST(payload AS BLOB))" in sql
+    ]
+    assert len(stream_cursors) == 1
+    with pytest.raises(sqlite3.ProgrammingError, match="closed"):
+        stream_cursors[0].fetchone()
 
 
 def test_iter_topics_payload_bound_is_checked_before_topic_parsing(tmp_path: Path):
