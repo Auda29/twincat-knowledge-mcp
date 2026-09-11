@@ -339,6 +339,7 @@ def test_wheel_installs_without_source_checkout(
     assert str(operator_dir) not in human_validation.stdout
 
     (package / "topics.jsonl").write_bytes(before["topics.jsonl"] + b" ")
+    tampered_before = {p.name: p.read_bytes() for p in package.iterdir()}
     tampered = _run(validation_command, cwd=foreign_cwd, env=env, timeout=30)
     assert tampered.returncode == 1
     assert json.loads(tampered.stdout)["status"] == "error"
@@ -348,6 +349,7 @@ def test_wheel_installs_without_source_checkout(
     assert list(cache.iterdir()) == []
     assert (package / "topics.jsonl").read_bytes() == before["topics.jsonl"] + b" "
     assert (package / "manifest.json").read_bytes() == before["manifest.json"]
+    assert {p.name: p.read_bytes() for p in package.iterdir()} == tampered_before
 
     config_path = operator_dir / "config.toml"
     init = _run(
