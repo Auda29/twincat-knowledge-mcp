@@ -43,6 +43,34 @@ MAX_SNIPPET_CHARS = 512
 SUPPORTED_TOPIC_KINDS = frozenset({"topics"})
 
 T = TypeVar("T")
+RequestT = TypeVar("RequestT", bound=BaseModel)
+
+
+def _has_bypassed_fields(value: object) -> bool:
+    if isinstance(value, BaseModel):
+        fields = type(value).model_fields
+        if any(key not in fields for key in value.__dict__):
+            return True
+        return any(_has_bypassed_fields(item) for item in value.__dict__.values())
+    if isinstance(value, dict):
+        return any(
+            _has_bypassed_fields(key) or _has_bypassed_fields(item)
+            for key, item in value.items()
+        )
+    if isinstance(value, (tuple, list, set, frozenset)):
+        return any(_has_bypassed_fields(item) for item in value)
+    return False
+
+
+def _validated_request(model_type: type[RequestT], request: object) -> RequestT | None:  # noqa: UP047
+    """Revalidate even instances made with Pydantic bypass APIs."""
+    if not isinstance(request, model_type) or _has_bypassed_fields(request):
+        return None
+    try:
+        payload = request.model_dump(mode="python", warnings=False)
+        return model_type.model_validate(payload)
+    except Exception:
+        return None
 
 
 def _json_bytes(model: object) -> int:
@@ -185,23 +213,24 @@ class TopicQueryService:
                 return f"unsupported filter: {field}"
         return None
 
-    def _index_snapshot_filter(self, snapshot_id: str | None) -> str | None:
+    def _package_snapshot_filter(self, snapshot_id: str | None) -> bool:
         assert self._loaded is not None
-        if snapshot_id is None:
-            return None
-        if snapshot_id == self._loaded.manifest.corpus_manifest.snapshot_id:
-            return None
-        return snapshot_id
+        return (
+            snapshot_id is None
+            or snapshot_id == self._loaded.manifest.corpus_manifest.snapshot_id
+        )
 
     def _fits(self, response: object) -> bool:
         return _json_bytes(response) <= MAX_DOMAIN_RESPONSE_BYTES
 
     def search(self, request: SearchInput) -> ResponseEnvelope[SearchData]:
         """Search indexed topics with stable, bounded, authenticated pages."""
+        validated_request = _validated_request(SearchInput, request)
+        if validated_request is None:
+            return self._error("invalid search input")
+        request = validated_request
         if self._loaded is None:
             return self._not_available("validated topic corpus is not available")
-        if not isinstance(request, SearchInput):
-            return self._error("invalid search input")
         unsupported = self._supported_filters(request.filters)
         if unsupported is not None:
             return self._error(unsupported)
@@ -227,16 +256,18 @@ class TopicQueryService:
                     limit=request.limit,
                 )
             position = 0 if state is None else state.position
-            source_snapshot = self._index_snapshot_filter(
+            snapshot_id = (
                 None if request.filters is None else request.filters.snapshot_id
             )
+            if not self._package_snapshot_filter(snapshot_id):
+                return self._envelope("not_found")
             language = None if request.filters is None else request.filters.language
             if language == "any":
                 language = None
             topics: tuple[Topic, ...] = self._loaded.index.search(
                 request.query,
                 language=language,
-                source_snapshot_id=source_snapshot,
+                source_snapshot_id=None,
                 limit=request.limit,
                 offset=position,
             )
@@ -248,61 +279,75 @@ class TopicQueryService:
                 lookahead = self._loaded.index.search(
                     request.query,
                     language=language,
-                    source_snapshot_id=source_snapshot,
+                    source_snapshot_id=None,
                     limit=1,
                     offset=position + request.limit,
                 )
-            has_more = bool(lookahead)
+            has_more_at_limit = bool(lookahead)
+            prefix_items: list[SearchItem] = []
+            prefix_sources: list[SourceCitation] = []
             items: list[SearchItem] = []
             sources: list[SourceCitation] = []
+            next_cursor: str | None = None
             for topic in topics:
-                item = SearchItem(
-                    id=topic.id,
-                    title=topic.title,
-                    snippet=self._snippet(topic),
-                    source=SearchProvenance(
-                        source_id=topic.source.source_id,
-                        snapshot_id=topic.source.snapshot_id,
-                        topic_id=topic.source.topic_id,
-                    ),
+                prefix_items.append(
+                    SearchItem(
+                        id=topic.id,
+                        title=topic.title,
+                        snippet=self._snippet(topic),
+                        source=SearchProvenance(
+                            source_id=topic.source.source_id,
+                            snapshot_id=topic.source.snapshot_id,
+                            topic_id=topic.source.topic_id,
+                        ),
+                    )
                 )
-                candidate_items = tuple(items + [item])
                 topic_source = self._source(topic.source)
-                candidate_sources = _unique_sources([*sources, topic_source])
+                prefix_sources.append(topic_source)
+                candidate_items = tuple(prefix_items)
+                candidate_sources = _unique_sources(prefix_sources)
+                candidate_has_more = (
+                    len(candidate_items) < len(topics) or has_more_at_limit
+                )
+                candidate_cursor = None
+                if candidate_has_more:
+                    try:
+                        candidate_cursor = self._cursor.encode(
+                            tool="tc_search",
+                            generation=generation,
+                            query=request.query,
+                            filters=filters_payload,
+                            selected_sections=None,
+                            limit=request.limit,
+                            position=position + len(candidate_items),
+                        )
+                    except CursorError:
+                        return self._error(
+                            "search cursor cannot be issued within bounds"
+                        )
                 candidate = self._envelope(
                     "ok",
                     SearchData(
                         items=candidate_items,
                         total=None,
-                        has_more=has_more or len(candidate_items) < len(topics),
+                        has_more=candidate_has_more,
                         applied_filters=request.filters,
                     ),
                     sources=candidate_sources,
-                    truncated=has_more or len(candidate_items) < len(topics),
+                    truncated=candidate_has_more,
+                    next_cursor=candidate_cursor,
                 )
                 if not self._fits(candidate):
-                    if not items:
-                        return self._error("search result exceeds the response bound")
-                    has_more = True
-                    break
-                items.append(item)
-                sources.append(topic_source)
+                    continue
+                items = list(candidate_items)
+                sources = list(candidate_sources)
+                next_cursor = candidate_cursor
+            if not items and topics:
+                return self._error("search result exceeds the response bound")
             consumed = len(items)
-            has_more = has_more or consumed < len(topics)
-            next_cursor = None
-            if has_more:
-                try:
-                    next_cursor = self._cursor.encode(
-                        tool="tc_search",
-                        generation=generation,
-                        query=request.query,
-                        filters=filters_payload,
-                        selected_sections=None,
-                        limit=request.limit,
-                        position=position + consumed,
-                    )
-                except CursorError:
-                    return self._error("search cursor cannot be issued within bounds")
+            has_more = consumed < len(topics) or has_more_at_limit
+            if not has_more:
+                next_cursor = None
             status = "ok" if items else "not_found"
             result = self._envelope(
                 status,
@@ -348,10 +393,12 @@ class TopicQueryService:
 
     def get_topic(self, request: GetTopicInput) -> ResponseEnvelope[TopicData]:
         """Resolve one exact indexed ID and page only complete sections."""
+        validated_request = _validated_request(GetTopicInput, request)
+        if validated_request is None:
+            return self._error("invalid topic input")
+        request = validated_request
         if self._loaded is None:
             return self._not_available("validated topic corpus is not available")
-        if not isinstance(request, GetTopicInput):
-            return self._error("invalid topic input")
         try:
             generation = self._generation()
             topic = self._loaded.index.get_topic(request.topic_id)
@@ -402,11 +449,16 @@ class TopicQueryService:
             base_response = self._envelope("ok", base, sources=(topic_source,))
             if not self._fits(base_response):
                 return self._error("topic metadata is oversized for the response bound")
+            prefix_page: list[Section] = []
             page: list[Section] = []
-            for section in selected[position:]:
-                candidate_sections = tuple(page + [section])
+            next_cursor: str | None = None
+            for section in selected[position : position + request.limit]:
+                prefix_page.append(section)
+                candidate_sections = tuple(prefix_page)
                 candidate_data = self._topic_data(
-                    topic, candidate_sections, complete=False
+                    topic,
+                    candidate_sections,
+                    complete=position + len(candidate_sections) >= len(selected),
                 )
                 candidate_sources = _unique_sources(
                     [
@@ -414,37 +466,40 @@ class TopicQueryService:
                         *(self._source(item.source) for item in candidate_sections),
                     ]
                 )
+                candidate_has_more = position + len(candidate_sections) < len(selected)
+                candidate_cursor = None
+                if candidate_has_more:
+                    try:
+                        candidate_cursor = self._cursor.encode(
+                            tool="tc_get_topic",
+                            generation=generation,
+                            query=topic.id,
+                            filters=None,
+                            selected_sections=selected_key,
+                            limit=request.limit,
+                            position=position + len(candidate_sections),
+                        )
+                    except CursorError:
+                        return self._error(
+                            "topic cursor cannot be issued within bounds"
+                        )
                 candidate = self._envelope(
                     "ok",
                     candidate_data,
                     sources=candidate_sources,
-                    truncated=True,
+                    truncated=candidate_has_more,
+                    next_cursor=candidate_cursor,
                 )
                 if not self._fits(candidate):
-                    if not page:
-                        return self._error(
-                            "oversized content cannot fit in one section"
-                        )
-                    break
-                page.append(section)
-                if len(page) >= request.limit:
-                    break
+                    continue
+                page = list(candidate_sections)
+                next_cursor = candidate_cursor
+            if not page and selected[position:]:
+                return self._error("oversized content cannot fit in one section")
             consumed = len(page)
             has_more = position + consumed < len(selected)
-            next_cursor = None
-            if has_more:
-                try:
-                    next_cursor = self._cursor.encode(
-                        tool="tc_get_topic",
-                        generation=generation,
-                        query=topic.id,
-                        filters=None,
-                        selected_sections=selected_key,
-                        limit=request.limit,
-                        position=position + consumed,
-                    )
-                except CursorError:
-                    return self._error("topic cursor cannot be issued within bounds")
+            if not has_more:
+                next_cursor = None
             data = self._topic_data(topic, tuple(page), complete=not has_more)
             sources = _unique_sources(
                 [topic_source, *(self._source(section.source) for section in page)]
@@ -478,10 +533,12 @@ class TopicQueryService:
         self, request: CorpusStatusInput
     ) -> ResponseEnvelope[CorpusStatusData]:
         """Project validated manifest/summary facts and a bounded source inventory."""
+        validated_request = _validated_request(CorpusStatusInput, request)
+        if validated_request is None:
+            return self._error("invalid status input")
+        request = validated_request
         if self._loaded is None:
             return self._not_available("validated topic corpus is not available")
-        if not isinstance(request, CorpusStatusInput):
-            return self._error("invalid status input")
         try:
             manifest = self._loaded.manifest
             package_snapshot = manifest.corpus_manifest.snapshot_id
@@ -507,22 +564,70 @@ class TopicQueryService:
                     limit=request.limit,
                 )
             position = 0 if state is None else state.position
-            all_sources = tuple(
-                self._status_source(source)
-                for source in manifest.corpus_manifest.sources
-            )
-            if position > len(all_sources):
+            all_sources = manifest.corpus_manifest.sources
+            source_count = len(all_sources)
+            if position > source_count:
                 return self._error("status cursor is outside the source range")
-            page = all_sources[position : position + request.limit]
-            has_more = position + len(page) < len(all_sources)
-            if has_more:
-                lookahead = all_sources[position + len(page) : position + len(page) + 1]
-                has_more = bool(lookahead)
             summary = self._loaded.summary
             counts = tuple(
                 LanguageCount(language=cast(Literal["de", "en"], language), count=count)
                 for language, count in sorted(summary.language_counts.items())
             )
+            prefix_page: list[StatusSource] = []
+            page: list[StatusSource] = []
+            next_cursor: str | None = None
+            for source in all_sources[position : position + request.limit]:
+                prefix_page.append(self._status_source(source))
+                candidate_has_more = position + len(prefix_page) < source_count
+                candidate_cursor = None
+                if candidate_has_more:
+                    try:
+                        candidate_cursor = self._cursor.encode(
+                            tool="tc_get_corpus_status",
+                            generation=generation,
+                            query=request.detail,
+                            filters=filter_payload,
+                            selected_sections=None,
+                            limit=request.limit,
+                            position=position + len(prefix_page),
+                        )
+                    except CursorError:
+                        return self._error(
+                            "status cursor cannot be issued within bounds"
+                        )
+                data = CorpusStatusData(
+                    package_snapshot_id=package_snapshot,
+                    topic_count=summary.topic_count,
+                    section_count=summary.section_count,
+                    language_counts=counts,
+                    search_modes=("lexical",),
+                    implemented_categories=("topics",),
+                    count_fields=("topics", "sections", "languages"),
+                    source_count=source_count,
+                    sources=tuple(prefix_page),
+                    inventory=StatusInventory(
+                        **manifest.corpus_manifest.inventory.model_dump(mode="python")
+                    ),
+                )
+                candidate = self._envelope(
+                    "ok",
+                    data,
+                    warnings=(
+                        "coverage counts describe validated topics only; other entity "
+                        "categories are not implemented",
+                    ),
+                    truncated=candidate_has_more,
+                    next_cursor=candidate_cursor,
+                )
+                if not self._fits(candidate):
+                    continue
+                page = list(prefix_page)
+                next_cursor = candidate_cursor
+            if not page and all_sources[position:]:
+                return self._error("corpus status exceeds the response bound")
+            has_more = position + len(page) < source_count
+            if not has_more:
+                next_cursor = None
             data = CorpusStatusData(
                 package_snapshot_id=package_snapshot,
                 topic_count=summary.topic_count,
@@ -531,26 +636,12 @@ class TopicQueryService:
                 search_modes=("lexical",),
                 implemented_categories=("topics",),
                 count_fields=("topics", "sections", "languages"),
-                source_count=len(all_sources),
-                sources=page,
+                source_count=source_count,
+                sources=tuple(page),
                 inventory=StatusInventory(
                     **manifest.corpus_manifest.inventory.model_dump(mode="python")
                 ),
             )
-            next_cursor = None
-            if has_more:
-                try:
-                    next_cursor = self._cursor.encode(
-                        tool="tc_get_corpus_status",
-                        generation=generation,
-                        query=request.detail,
-                        filters=filter_payload,
-                        selected_sections=None,
-                        limit=request.limit,
-                        position=position + len(page),
-                    )
-                except CursorError:
-                    return self._error("status cursor cannot be issued within bounds")
             result = self._envelope(
                 "ok",
                 data,
