@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -292,6 +293,61 @@ def test_wheel_installs_without_source_checkout(
     assert normalization.returncode == 0, normalization.stderr
     assert normalization.stdout.strip() == "installed normalization verified"
     assert normalization.stderr == ""
+
+    package = operator_dir / "installed-package"
+    cache = operator_dir / "installed-package-cache"
+    before = {p.name: p.read_bytes() for p in package.iterdir()}
+    fingerprint = hashlib.sha256(before["manifest.json"]).hexdigest()
+    validation_command = [
+        *_console_command(python, console_script),
+        "corpus",
+        "validate",
+        package,
+        "--expected-manifest-sha256",
+        fingerprint,
+        "--cache-dir",
+        cache,
+        "--json",
+    ]
+    validation = _run(validation_command, cwd=foreign_cwd, env=env, timeout=30)
+    assert validation.returncode == 0, validation.stderr
+    report = json.loads(validation.stdout)
+    assert report["schema_version"] == "corpus-validation-1"
+    assert report["status"] == "valid"
+    assert report["scope"] == "topic_package"
+    assert report["manifest_sha256"] == fingerprint
+    assert report["topic_count"] == 1
+    assert report["section_count"] == 1
+    assert report["language_counts"] == {"en": 1}
+    assert report["limitations"]
+    assert str(operator_dir) not in validation.stdout
+    assert "Synthetic" not in validation.stdout
+    assert validation.stderr == ""
+    assert list(cache.iterdir()) == []
+    assert {p.name: p.read_bytes() for p in package.iterdir()} == before
+
+    human_validation = _run(
+        validation_command[:-1], cwd=foreign_cwd, env=env, timeout=30
+    )
+    assert human_validation.returncode == 0
+    assert human_validation.stderr == ""
+    assert human_validation.stdout.startswith(
+        "Topic package valid: 1 topics, 1 sections.\n"
+    )
+    assert "not source authenticity or rights" in human_validation.stdout
+    assert "No package activation" in human_validation.stdout
+    assert str(operator_dir) not in human_validation.stdout
+
+    (package / "topics.jsonl").write_bytes(before["topics.jsonl"] + b" ")
+    tampered = _run(validation_command, cwd=foreign_cwd, env=env, timeout=30)
+    assert tampered.returncode == 1
+    assert json.loads(tampered.stdout)["status"] == "error"
+    assert tampered.stderr == ""
+    assert "Traceback" not in tampered.stdout
+    assert str(operator_dir) not in tampered.stdout
+    assert list(cache.iterdir()) == []
+    assert (package / "topics.jsonl").read_bytes() == before["topics.jsonl"] + b" "
+    assert (package / "manifest.json").read_bytes() == before["manifest.json"]
 
     config_path = operator_dir / "config.toml"
     init = _run(
