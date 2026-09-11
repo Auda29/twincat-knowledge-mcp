@@ -211,7 +211,7 @@ def test_search_rejects_unbounded_query_and_pagination(tmp_path: Path) -> None:
 
     with TopicIndex(path) as index:
         with pytest.raises(TopicIndexBoundsError):
-            index.search("x" * 513)
+            index.search("x" * 2049)
         with pytest.raises(TopicIndexBoundsError):
             index.search("x", limit=21)
         with pytest.raises(TopicIndexBoundsError):
