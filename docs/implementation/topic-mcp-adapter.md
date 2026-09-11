@@ -59,25 +59,67 @@ requests remain protocol errors rather than tool execution results.
 
 ## Bounds and pagination
 
-The domain service keeps its serialized envelope within 12 KiB. The adapter also
-measures the complete UTF-8 JSON-RPC response, including request ID, server-info
-metadata, text, and structured content, against `WIRE_RESPONSE_LIMIT` (32,768
-bytes). It only emits complete service records and preserves the service's
-authenticated cursor. Cursor traversal is tied to the service instance,
-package generation, query/filter selection, tool, and page size; stale,
-forged, cross-query, and cross-service cursors fail safely.
+The domain service keeps its serialized envelope within 12 KiB. For adapter-generated
+successful tool results and fixed-size fallback results, the adapter measures the
+complete UTF-8 JSON-RPC response, including request ID, server-info metadata, text,
+and structured content, against `WIRE_RESPONSE_LIMIT` (32,768 bytes). It only emits
+complete service records and preserves the service's authenticated cursor. Cursor
+traversal is tied to the service instance, package generation, query/filter
+selection, tool, and page size; stale, forged, cross-query, and cross-service
+cursors fail safely.
 
-The 32 KiB claim applies to request IDs accepted by the MCP SDK and to ordinary
-bounded protocol metadata. JSON-RPC itself does not impose a universal maximum
-on an attacker-controlled request ID, so an arbitrarily huge ID can consume the
-wire budget before a result is serialized. Such IDs are outside this adapter's
-admitted response-budget envelope; this is a limitation, not a universal bound
-claim. The contract tests measure real subprocess responses containing Unicode
-and the server metadata, and exercise multiple cursor calls over real
-build-and-load fixture packages.
+This is not a universal 32 KiB bound for every JSON-RPC response. SDK-generated
+protocol-error envelopes are outside the adapter's measurement boundary: for
+example, an unsupported protocol version is echoed in the SDK's `-32022` error data.
+A 40,000-character unsupported version therefore produces an oversized protocol
+error under the locked SDK. JSON-RPC also does not impose a universal maximum on an
+attacker-controlled request ID. A very large valid ID can make even the adapter's
+fixed fallback response exceed the budget before serialization. The contract tests
+exercise both cases and record them as current budget exceptions, not as accepted
+normal-operation payloads. The adapter does not silently constrain these valid
+protocol fields.
+
+The 32 KiB claim is consequently limited to adapter-generated tool-result paths for
+bounded SDK-admitted metadata. It does not claim a universal maximum for SDK
+protocol errors, arbitrary request IDs, or all protocol metadata. The contract tests
+measure real subprocess responses containing Unicode and server metadata, and
+exercise multiple cursor calls over real build-and-load fixture packages.
 
 The test fixture is local synthetic data used only to exercise the production
 package builder, loader, service, and adapter. It is not Beckhoff content and
-proves neither InfoSys coverage nor product readiness. A missing validated
-corpus remains `not_available` while discovery and the fixed three-tool catalog
-continue to work.
+proves neither InfoSys coverage nor product readiness. A missing validated corpus
+remains `not_available` while discovery and the fixed three-tool catalog continue
+to work.
+
+## SDK coupling and upgrade gate
+
+The wire adapter is pinned to `mcp==2.2.0` in `pyproject.toml` and `uv.lock`, with
+matching `mcp-types==2.2.0` resolved by the lock. Stdio framing, JSON-RPC dispatch,
+and protocol validation remain SDK-owned; this project does not add a transport.
+The exact-wire catalog currently depends on these SDK internals:
+
+- `MCPServer._lowlevel_server` to reach the low-level server owned by the public
+  `MCPServer` instance;
+- low-level `Server._request_handlers` to remove default handlers that this
+  fixed-capability adapter must not advertise;
+- low-level `server_info_stamp` to put the SDK's server identity/version stamp in
+  each adapter-generated result;
+- the adapter-local `MCPServer._topic_tools` attribute for the fixed in-process
+  catalog used by contract tests.
+
+These are private instance attributes, not a public compatibility contract. Any
+upgrade of `mcp` or `mcp-types` must first pass a compatibility gate that inspects
+those attributes and reruns discovery, list, call, strict-schema, error-boundary,
+wire-budget, and EOF tests on Python 3.12 and 3.13. The pin must not be loosened
+until that gate passes; a public `MCPServer.list_tools()`/`call_tool()` success is
+not sufficient evidence because the public in-process API is separate from the
+strict manually published wire schemas and does not provide the wire server-info
+metadata in the same way.
+
+## Acceptance status
+
+This document describes the implemented three-tool slice only. The mandatory
+acceptance criteria in `docs/PLAN.md` remain **OPEN**: in particular, this slice
+is not the planned 15-tool product and these adapter tests do not establish real
+InfoSys coverage, Streamable HTTP, host compatibility, or full product acceptance.
+Documentation of a limitation does not waive a PLAN gate.

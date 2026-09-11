@@ -74,14 +74,20 @@ class _StatusWireInput(StrictModel):
     cursor: StrictStr | None = Field(default=None, max_length=2048)
 
 
-def _invalid_params() -> MCPError:
+class _AdapterProtocolError(MCPError):
+    """MCP protocol error created by this adapter, not by the service."""
+
+
+def _invalid_params() -> _AdapterProtocolError:
     """Return a protocol error without echoing caller-controlled values."""
 
-    return MCPError(code=-32602, message="Invalid request parameters", data="")
+    return _AdapterProtocolError(
+        code=-32602, message="Invalid request parameters", data=""
+    )
 
 
-def _unknown_tool() -> MCPError:
-    return MCPError(code=-32602, message="Unknown tool", data="")
+def _unknown_tool() -> _AdapterProtocolError:
+    return _AdapterProtocolError(code=-32602, message="Unknown tool", data="")
 
 
 def _parse(model_type: Any, arguments: object) -> Any:
@@ -396,15 +402,13 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
                     CorpusStatusResponse,
                 )
             raise _unknown_tool()
-        except MCPError as exc:
-            # Only adapter-owned protocol errors may cross this boundary.  A
-            # service implementation must not be able to smuggle exception
-            # text in an MCPError message.
-            if exc.code == -32602 and exc.message in {
-                "Invalid request parameters",
-                "Unknown tool",
-            }:
-                raise
+        except _AdapterProtocolError:
+            # Adapter-owned protocol errors retain their fixed code/message/data.
+            raise
+        except MCPError:
+            # Service-raised MCPError values are ordinary service failures.  Their
+            # code, message, and data are caller-controlled and must not cross the
+            # wire boundary.
             response_model = {
                 "tc_search": SearchResponse,
                 "tc_get_topic": TopicResponse,
