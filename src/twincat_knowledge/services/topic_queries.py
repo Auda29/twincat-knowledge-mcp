@@ -11,6 +11,7 @@ from typing import Literal, TypeVar, cast
 from pydantic import BaseModel
 
 from twincat_knowledge.corpus.topic_hierarchy_graph import (
+    MAX_GRAPH_TOPICS,
     GraphDiagnosticCode,
     TopicHierarchyGraph,
     TopicHierarchyGraphError,
@@ -30,6 +31,7 @@ from .query_contracts import (
     BrowseTopicItem,
     BrowseTopicsData,
     BrowseTopicsInput,
+    BrowseTopicsResponse,
     CorpusStatusData,
     CorpusStatusInput,
     GetTopicInput,
@@ -177,6 +179,42 @@ class TopicQueryService:
             next_cursor=next_cursor,
         )
 
+    def _browse_envelope(
+        self,
+        status: str,
+        data: BrowseTopicsData | None = None,
+        *,
+        sources: tuple[SourceCitation, ...] = (),
+        warnings: tuple[str, ...] = (),
+        truncated: bool = False,
+        next_cursor: str | None = None,
+    ) -> BrowseTopicsResponse:
+        """Build a browse response with its measured final ASCII envelope size."""
+        if self._loaded is None:
+            snapshot_ids: tuple[str, ...] = ()
+        else:
+            try:
+                snapshot_ids = self._snapshot_ids()
+            except TopicPackageLoadError:
+                snapshot_ids = ()
+        response = BrowseTopicsResponse(
+            status=status,  # type: ignore[arg-type]
+            snapshot_ids=snapshot_ids,
+            data=data,
+            sources=sources,
+            warnings=warnings,
+            truncated=truncated,
+            next_cursor=next_cursor,
+            actual_ascii_bytes=0,
+            ascii_byte_budget=MAX_DOMAIN_RESPONSE_BYTES,
+        )
+        for _ in range(4):
+            measured = _json_bytes(response)
+            if measured == response.actual_ascii_bytes:
+                break
+            response = response.model_copy(update={"actual_ascii_bytes": measured})
+        return response
+
     def _error(self, message: str) -> ResponseEnvelope[T]:
         # Messages are fixed service-domain text; no exception or path detail is
         # ever returned to a caller.
@@ -245,21 +283,13 @@ class TopicQueryService:
         if self._browse_graph is not None and self._browse_generation == generation:
             return self._browse_graph
         assert self._loaded is not None
-        connection = getattr(self._loaded.index, "_connection", None)
-        if connection is None:
-            raise TopicHierarchyGraphError("verified topic index is unavailable")
-        rows = None
         try:
-            rows = connection.execute("SELECT payload FROM topics ORDER BY id")
-            topics = tuple(Topic.model_validate_json(row[0]) for row in rows)
+            with self._loaded.index.iter_topics(max_topics=MAX_GRAPH_TOPICS) as topics:
+                graph = build_topic_hierarchy_graph(topics)
         except Exception:
             raise TopicHierarchyGraphError(
                 "verified topic graph could not be read"
             ) from None
-        finally:
-            if rows is not None:
-                rows.close()
-        graph = build_topic_hierarchy_graph(topics)
         self._browse_graph = graph
         self._browse_generation = generation
         return graph
@@ -288,6 +318,7 @@ class TopicQueryService:
             BrowseBreadcrumbItem(topic_id=item.canonical_id, title=item.topic.title)
             for item in breadcrumb.items
         )
+        diagnostic = breadcrumb.diagnostic
         item = BrowseTopicItem(
             topic_id=node.canonical_id,
             original_topic_id=node.original_topic_id,
@@ -301,6 +332,9 @@ class TopicQueryService:
             order_tied=node.order_tied,
             ordering=node.ordering,
             breadcrumb=crumbs,
+            breadcrumb_complete=diagnostic is None,
+            breadcrumb_truncated=diagnostic is not None,
+            breadcrumb_diagnostic=diagnostic,
             source=self._source(node.topic.source),
         )
         return item, _unique_sources(
@@ -327,7 +361,7 @@ class TopicQueryService:
             if not self._package_snapshot_filter(
                 None if filters is None else filters.snapshot_id
             ):
-                return self._envelope("not_found")
+                return self._browse_envelope("not_found")
             graph = self._topic_graph(generation)
             if not graph.has_hierarchy:
                 return self._not_available("topic hierarchy is not available")
@@ -336,7 +370,7 @@ class TopicQueryService:
             else:
                 parent = graph.get_node(request.parent_topic_id)
                 if parent is None:
-                    return self._envelope("not_found")
+                    return self._browse_envelope("not_found")
                 candidates = graph.direct_children(parent.canonical_id)
             language = None if filters is None else filters.language
             library = None if filters is None else filters.library_id
@@ -385,7 +419,7 @@ class TopicQueryService:
                         limit=request.limit,
                         position=position + len(page),
                     )
-                candidate = self._envelope(
+                candidate = self._browse_envelope(
                     "ok",
                     BrowseTopicsData(
                         items=tuple(page),
@@ -422,7 +456,7 @@ class TopicQueryService:
             status = (
                 "ok" if page or request.parent_topic_id is not None else "not_found"
             )
-            result = self._envelope(
+            result = self._browse_envelope(
                 status,
                 BrowseTopicsData(
                     items=tuple(page),

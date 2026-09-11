@@ -9,6 +9,7 @@ import pytest
 
 import twincat_knowledge.corpus.topic_index as topic_index
 from twincat_knowledge.corpus.topic_index import (
+    MAX_TOPIC_JSON_BYTES,
     TopicIndex,
     TopicIndexBoundsError,
     TopicIndexOpenError,
@@ -341,3 +342,73 @@ def test_index_fsync_uses_writable_handle_for_windows(tmp_path, monkeypatch):
     assert len(synced) == 1
     with TopicIndex(path) as index:
         assert index.get_topic("topic-1") == _topic()
+
+
+def test_iter_topics_is_bounded_sorted_and_context_managed(tmp_path: Path) -> None:
+    path = tmp_path / "iter.sqlite"
+    topics = [_topic("b"), _topic("a"), _topic("c")]
+    create_topic_index(path, topics)
+
+    with TopicIndex(path) as index:
+        with index.iter_topics(max_topics=3) as stream:
+            assert tuple(topic.id for topic in stream) == ("a", "b", "c")
+
+        with pytest.raises(TopicIndexBoundsError, match="topic count"):
+            with index.iter_topics(max_topics=2) as stream:
+                tuple(stream)
+
+        with pytest.raises(TopicIndexBoundsError):
+            index.iter_topics(max_topics=0)
+        with pytest.raises(TopicIndexValidationError):
+            index.iter_topics(max_topics=True)  # type: ignore[arg-type]
+
+
+def test_iter_topics_preserves_caller_exception_and_closes_before_index(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "iter-exception.sqlite"
+    create_topic_index(path, [_topic()])
+
+    class CallerFailure(Exception):
+        pass
+
+    with TopicIndex(path) as index:
+        failure = CallerFailure("caller secret")
+        with pytest.raises(CallerFailure) as caught:
+            with index.iter_topics() as stream:
+                next(stream)
+                raise failure
+        assert caught.value is failure
+
+
+def test_iter_topics_payload_bound_is_checked_before_topic_parsing(tmp_path: Path):
+    path = tmp_path / "iter-payload.sqlite"
+    create_topic_index(path, [_topic()])
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE topics SET payload = ? WHERE id = ?",
+            ("{}", "topic-1"),
+        )
+        connection.commit()
+
+    with TopicIndex(path) as index:
+        with pytest.raises(TopicIndexValidationError, match="payload"):
+            with index.iter_topics() as stream:
+                tuple(stream)
+
+
+def test_iter_topics_rejects_oversized_payload_before_json_parse(tmp_path: Path):
+    path = tmp_path / "iter-oversized.sqlite"
+    create_topic_index(path, [_topic()])
+    oversized = "x" * (MAX_TOPIC_JSON_BYTES + 1)
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "UPDATE topics SET payload = ? WHERE id = ?",
+            (oversized, "topic-1"),
+        )
+        connection.commit()
+
+    with TopicIndex(path) as index:
+        with pytest.raises(TopicIndexValidationError, match="payload"):
+            with index.iter_topics() as stream:
+                tuple(stream)

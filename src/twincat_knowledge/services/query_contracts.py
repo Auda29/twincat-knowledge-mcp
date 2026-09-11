@@ -6,6 +6,7 @@ from typing import Generic, Literal, TypeVar
 
 from pydantic import Field, StrictStr, field_validator
 
+from twincat_knowledge.corpus.topic_hierarchy_graph import GraphDiagnosticCode
 from twincat_knowledge.domain.models import StrictModel
 
 MAX_QUERY_CHARS = 512
@@ -214,6 +215,9 @@ class BrowseTopicItem(StrictModel):
     order_tied: bool
     ordering: Literal["toc_order", "technical_canonical_id"]
     breadcrumb: tuple[BrowseBreadcrumbItem, ...]
+    breadcrumb_complete: bool
+    breadcrumb_truncated: bool
+    breadcrumb_diagnostic: GraphDiagnosticCode | None = None
     source: SourceCitation
 
 
@@ -245,7 +249,14 @@ class ResponseEnvelope(StrictModel, Generic[T]):  # noqa: UP046
 SearchResponse = ResponseEnvelope[SearchData]
 TopicResponse = ResponseEnvelope[TopicData]
 CorpusStatusResponse = ResponseEnvelope[CorpusStatusData]
-BrowseTopicsResponse = ResponseEnvelope[BrowseTopicsData]
+
+
+class BrowseTopicsResponse(ResponseEnvelope[BrowseTopicsData]):
+    """Browse envelope with measured final ASCII response size."""
+
+    actual_ascii_bytes: int = Field(strict=True, ge=0)
+    ascii_byte_budget: int = Field(strict=True, ge=1)
+
 
 __all__ = [
     "CorpusStatusData",
