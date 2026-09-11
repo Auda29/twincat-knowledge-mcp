@@ -38,7 +38,10 @@ flag; it does not duplicate document content. `not_found` and `not_available`
 are ordinary, non-error tool results. Only `status="error"` produces
 `isError=true`. Unexpected service failures are converted to the fixed warning
 `topic service execution failed`; exception text, paths, secrets, and SQL do not
-cross the MCP boundary.
+cross the MCP boundary. Each service call has its own ordinary-exception boundary,
+so even a service-raised adapter-private protocol error is translated before
+protocol dispatch sees it. Cancellation (`BaseException`) still propagates.
+This is error-data hygiene, not a sandbox against arbitrary in-process code.
 
 All three tools advertise the four read-only annotations:
 `readOnlyHint=true`, `destructiveHint=false`, `idempotentHint=true`, and

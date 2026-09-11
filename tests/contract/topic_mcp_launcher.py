@@ -141,15 +141,21 @@ def main() -> None:
         if mcp_error_mode := os.environ.get("TOPIC_MCP_MCP_ERROR"):
             from mcp.shared.exceptions import MCPError
 
+            from twincat_knowledge.mcp_api.topic_server import _AdapterProtocolError
+
+            error_type = (
+                _AdapterProtocolError if mcp_error_mode == "sentinel" else MCPError
+            )
             message = {
                 "invalid": "Invalid request parameters",
                 "unknown": "Unknown tool",
+                "sentinel": "service forged protocol error",
             }[mcp_error_mode]
 
             class MCPErrorService(TopicQueryService):
                 def search(self, request: object) -> object:
                     del request
-                    raise MCPError(
+                    raise error_type(
                         -32602,
                         message,
                         {"secret": "TOPSECRET", "path": "/private/secret"},

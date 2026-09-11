@@ -7,7 +7,7 @@ activation, and resource lifetime remain the caller's responsibility.
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from typing import Any, Literal, cast
 
 from mcp import types
@@ -76,6 +76,16 @@ class _StatusWireInput(StrictModel):
 
 class _AdapterProtocolError(MCPError):
     """MCP protocol error created by this adapter, not by the service."""
+
+
+def _invoke_service(operation: Callable[[Any], Any], request: Any) -> Any:
+    """Translate exceptions where their service provenance is known."""
+    try:
+        return operation(request)
+    except Exception:
+        # Even an adapter-private protocol error is untrusted in this scope.
+        # BaseException cancellation must still propagate.
+        raise RuntimeError("topic service execution failed") from None
 
 
 def _invalid_params() -> _AdapterProtocolError:
@@ -359,7 +369,7 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
                     limit=wire.limit,
                     cursor=wire.cursor,
                 )
-                payload = service.search(search_request)
+                payload = _invoke_service(service.search, search_request)
                 return _result(
                     ctx.request_id,
                     payload,
@@ -377,7 +387,7 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
                     limit=wire.limit,
                     cursor=wire.cursor,
                 )
-                payload = service.get_topic(topic_request)
+                payload = _invoke_service(service.get_topic, topic_request)
                 return _result(
                     ctx.request_id,
                     payload,
@@ -393,7 +403,7 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
                     limit=wire.limit,
                     cursor=wire.cursor,
                 )
-                payload = service.get_corpus_status(status_request)
+                payload = _invoke_service(service.get_corpus_status, status_request)
                 return _result(
                     ctx.request_id,
                     payload,
