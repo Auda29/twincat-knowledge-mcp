@@ -119,3 +119,29 @@ or guaranteed successful Windows replacement while another reader holds a handle
 After these RED/GREEN corrections, 17 focused snapshot tests and 257 full tests
 passed on each of CPython 3.12.10 and 3.13.12. Ruff check/format and mypy passed.
 Independent review and native Windows CI of the final component remain required.
+
+## Review correction: retained rollback reference
+
+Before activation publishes a different candidate, it now revalidates the old
+active package through the same pinned loader and snapshot identity/path checks.
+A syntactically valid but stale ID, incorrect pin, missing package or cache-contained
+reference is not silently retained as the new `previous`. A failure preserves the
+pointer bytes and source packages and cleans the acquired lock/private cache.
+Four public regressions failed before this correction and pass afterward.
+Identical activation remains a verified, byte-preserving no-op.
+
+An invalid existing active reference can therefore block activation of another
+package; the operator must resolve the inconsistent state explicitly, not expect
+this API to silently discard rollback history. This does not introduce automatic
+repair, package deletion, source authentication or changes to rollback semantics.
+
+An exception from a pointer update does not prove the old state is still active:
+if replacement completed before an error was reported, the new complete state
+may already be visible. Re-read state before retrying. A retained regression
+performs the real replacement and then raises, and verifies the visible new state
+and cleanup. Atomic visibility is not an exactly-once acknowledgment guarantee.
+
+Coordinator results after the correction: 22 focused snapshot tests and 262 full
+tests passed on each of CPython 3.12.10 and 3.13.12, including actual installed
+wheel/sdist generation-switch and rollback tests. Ruff and mypy passed.
+Independent follow-up and native CI remain open for this final delta.

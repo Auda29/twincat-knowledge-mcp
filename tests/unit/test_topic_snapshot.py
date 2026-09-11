@@ -509,3 +509,73 @@ def test_pointer_replacement_before_open_reads_one_complete_generation(
     assert read_snapshot_state(state) == expected
     assert replaced == [True]
     assert pointer.read_bytes() == next_bytes
+
+
+@pytest.mark.parametrize(
+    "mutation", ["snapshot_id", "cache_path", "pin", "missing_package"]
+)
+def test_activation_rejects_invalid_old_active_before_preserving_it(
+    tmp_path, monkeypatch, mutation
+):
+    state, cache = tmp_path / "state", tmp_path / "cache"
+    state.mkdir()
+    cache.mkdir()
+    package_a, pin_a, _ = _package(tmp_path, "a")
+    package_b, pin_b, _ = _package(tmp_path, "b")
+    activate_snapshot(state, package_a, expected_manifest_sha256=pin_a, cache_dir=cache)
+    pointer = state / "active.json"
+    original = json.loads(pointer.read_bytes())
+    if mutation == "snapshot_id":
+        original["active"]["snapshot_id"] = "not-package-a"
+    elif mutation == "cache_path":
+        original["active"]["package_path"] = str(cache)
+    elif mutation == "pin":
+        original["active"]["manifest_sha256"] = "0" * 64
+    else:
+        original["active"]["package_path"] = str(tmp_path / "missing-package")
+    pointer.write_text(json.dumps(original), encoding="utf-8")
+    # Establish syntactically valid state; only semantic package facts are broken.
+    read_snapshot_state(state)
+    before = pointer.read_bytes()
+    packages_before = {
+        str(p): p.read_bytes()
+        for package in (package_a, package_b)
+        for p in package.iterdir()
+    }
+    with pytest.raises(SnapshotError):
+        activate_snapshot(
+            state, package_b, expected_manifest_sha256=pin_b, cache_dir=cache
+        )
+    assert pointer.read_bytes() == before
+    assert sorted(p.name for p in state.iterdir()) == ["active.json"]
+    assert list(cache.iterdir()) == []
+    assert {
+        str(p): p.read_bytes()
+        for package in (package_a, package_b)
+        for p in package.iterdir()
+    } == packages_before
+
+
+def test_post_commit_error_requires_state_reread(tmp_path, monkeypatch):
+    state, cache = tmp_path / "state", tmp_path / "cache"
+    state.mkdir()
+    cache.mkdir()
+    package_a, pin_a, id_a = _package(tmp_path, "a")
+    package_b, pin_b, id_b = _package(tmp_path, "b")
+    activate_snapshot(state, package_a, expected_manifest_sha256=pin_a, cache_dir=cache)
+    real_replace = os.replace
+
+    def committed_then_failed(source, target):
+        real_replace(source, target)
+        raise OSError("ambiguous-after-commit")
+
+    monkeypatch.setattr(os, "replace", committed_then_failed)
+    with pytest.raises(SnapshotError):
+        activate_snapshot(
+            state, package_b, expected_manifest_sha256=pin_b, cache_dir=cache
+        )
+    current = read_snapshot_state(state)
+    assert current.active.snapshot_id == id_b
+    assert current.previous.snapshot_id == id_a
+    assert sorted(p.name for p in state.iterdir()) == ["active.json"]
+    assert list(cache.iterdir()) == []

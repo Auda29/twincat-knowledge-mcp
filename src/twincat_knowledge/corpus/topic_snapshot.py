@@ -478,6 +478,15 @@ def activate_snapshot(
         candidate = _with_verified_candidate(package, pin, cache)
         if current is not None and candidate == current.active:
             return current
+        if current is not None:
+            # A reference retained for rollback must still identify a valid package.
+            try:
+                with _load_reference(current.active, state_dir=state, cache_dir=cache):
+                    pass
+            except SnapshotError:
+                raise
+            except Exception:
+                _fail()
         next_state = SnapshotState(
             format_version=STATE_FORMAT_VERSION,
             active=candidate,
