@@ -432,3 +432,80 @@ def test_state_and_cache_aliases_are_rejected(tmp_path: Path) -> None:
         activate_snapshot(
             real_state, package_a, expected_manifest_sha256=pin_a, cache_dir=cache_alias
         )
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_lock_fstat_failure_releases_acquired_lock(tmp_path, monkeypatch, cancel):
+    state = tmp_path / "state"
+    cache = tmp_path / "cache"
+    state.mkdir()
+    cache.mkdir()
+    package, pin, _ = _package(tmp_path, "a")
+    real_open, real_fstat = os.open, os.fstat
+    acquired = []
+
+    def opening(path, *args, **kwargs):
+        fd = real_open(path, *args, **kwargs)
+        if Path(path) == state / ".active.lock":
+            acquired.append(fd)
+        return fd
+
+    def checking(fd):
+        if fd in acquired:
+            if cancel:
+                raise KeyboardInterrupt
+            raise OSError("private-path-fstat-failure")
+        return real_fstat(fd)
+
+    monkeypatch.setattr(os, "open", opening)
+    monkeypatch.setattr(os, "fstat", checking)
+    try:
+        with pytest.raises(KeyboardInterrupt if cancel else SnapshotError):
+            activate_snapshot(
+                state, package, expected_manifest_sha256=pin, cache_dir=cache
+            )
+        assert len(acquired) == 1
+        with pytest.raises(OSError):
+            real_fstat(acquired[0])
+        assert list(state.iterdir()) == []
+        assert list(cache.iterdir()) == []
+    finally:
+        for fd in acquired:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+
+
+def test_pointer_replacement_before_open_reads_one_complete_generation(
+    tmp_path, monkeypatch
+):
+    state, cache = tmp_path / "state", tmp_path / "cache"
+    state.mkdir()
+    cache.mkdir()
+    package_a, pin_a, _ = _package(tmp_path, "a")
+    package_b, pin_b, _ = _package(tmp_path, "longer-b")
+    activate_snapshot(state, package_a, expected_manifest_sha256=pin_a, cache_dir=cache)
+    pointer = state / "active.json"
+    old_bytes = pointer.read_bytes()
+    expected = activate_snapshot(
+        state, package_b, expected_manifest_sha256=pin_b, cache_dir=cache
+    )
+    next_bytes = pointer.read_bytes()
+    assert len(next_bytes) != len(old_bytes)
+    replacement = state / "replacement.json"
+    replacement.write_bytes(next_bytes)
+    pointer.write_bytes(old_bytes)
+    real_open = os.open
+    replaced = []
+
+    def opening(path, *args, **kwargs):
+        if Path(path) == pointer and not replaced:
+            os.replace(replacement, pointer)
+            replaced.append(True)
+        return real_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(os, "open", opening)
+    assert read_snapshot_state(state) == expected
+    assert replaced == [True]
+    assert pointer.read_bytes() == next_bytes

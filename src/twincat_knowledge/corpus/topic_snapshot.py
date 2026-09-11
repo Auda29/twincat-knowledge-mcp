@@ -189,8 +189,11 @@ def _open_state_bytes(state_dir: Path) -> bytes:
     payload = bytearray()
     try:
         opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode) or opened.st_size != expected_size:
+        if not stat.S_ISREG(opened.st_mode) or opened.st_size > MAX_STATE_BYTES:
             _fail()
+        # Atomic replacement may select a new generation between stat and open.
+        # Bind length and all subsequent reads to the opened descriptor instead.
+        expected_size = opened.st_size
         while len(payload) <= MAX_STATE_BYTES:
             chunk = os.read(descriptor, MAX_STATE_BYTES - len(payload) + 1)
             if not chunk:
@@ -393,10 +396,14 @@ def _acquire_lock(state_dir: Path) -> tuple[Path, int]:
     )
     try:
         descriptor = os.open(lock, flags, 0o600)
-        opened = os.fstat(descriptor)
-        if not stat.S_ISREG(opened.st_mode):
-            os.close(descriptor)
-            _fail()
+        try:
+            opened = os.fstat(descriptor)
+            if not stat.S_ISREG(opened.st_mode):
+                _fail()
+        except BaseException:
+            # Ownership starts at exclusive open, not after descriptor validation.
+            _release_lock(lock, descriptor)
+            raise
         return lock, descriptor
     except SnapshotBusy:
         raise

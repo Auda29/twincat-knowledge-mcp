@@ -101,3 +101,21 @@ and FIFO rejection, busy-lock preservation, replacement and fsync failure,
 and cancellation cleanup. These tests do not constitute real InfoSys coverage,
 vendor authenticity, rights verification, directory crash-durability proof, or
 Windows execution evidence.
+
+## Coordinator boundary regressions
+
+The coordinator reproduced two lock-acquisition leaks: both an `fstat` error
+and cancellation after exclusive creation left the descriptor and lock owned but
+unreleased. Acquisition now starts cleanup ownership immediately after open and
+releases on either failure, while preserving cancellation.
+
+A separate public-reader regression atomically replaces the pointer between
+preflight stat and open with a different-sized valid generation. The read is now
+bound to the opened descriptor's size and bytes, not the prior pathname's size.
+Regular-file, byte-bound and growth checks remain; no retry or partial-state
+fallback is introduced. This does not claim hostile same-account race protection
+or guaranteed successful Windows replacement while another reader holds a handle.
+
+After these RED/GREEN corrections, 17 focused snapshot tests and 257 full tests
+passed on each of CPython 3.12.10 and 3.13.12. Ruff check/format and mypy passed.
+Independent review and native Windows CI of the final component remain required.
