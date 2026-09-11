@@ -56,15 +56,19 @@ For each path, priority is:
 No `MCP_*` variables, `paths.corpus` fallback, home-directory scan, or default
 path is used. Relative paths from flags and environment variables are resolved
 against the command's current working directory. Relative TOML paths are
-resolved against the directory containing that config file. Flags and
-environment values are accepted without a config file when all required paths
-are supplied. If `--config` is supplied, it is always read and validated even
-when flags/environment values override both paths; malformed or unsafe config
-therefore still fails.
+resolved against the directory containing that config file. A literal `~` in
+`--config` is expanded once before both file opening and relative-path anchoring.
+Flags and environment values are accepted without a config file when all
+required paths are supplied. If `--config` is supplied, its bounded regular-file,
+UTF-8, TOML syntax and `[paths]` table checks always apply, even with overrides.
 
-Snapshot config parsing reads only a bounded UTF-8 regular file and rejects
-special files, oversized files, malformed TOML, wrong `[paths]` table types,
-empty/non-string path values, and NUL-containing values with generic errors.
+Snapshot config parsing rejects special files, oversized files, malformed TOML,
+wrong `[paths]` table types, and non-string or NUL-containing relevant path
+values with generic errors. Empty TOML strings are unset placeholders, as emitted
+by `init`; they allow flags/environment overrides but provide no default path.
+Empty explicit flags or selected environment values remain invalid. `list`
+requires only state: it does not validate or resolve cache flags, environment
+values or TOML cache fields. Activation and rollback still validate cache paths.
 Unknown root keys (including legacy authentication settings) remain accepted
 for compatibility and are never printed. Existing `doctor`, `init`, and
 `corpus validate` behavior is retained. `init` adds blank snapshot path fields

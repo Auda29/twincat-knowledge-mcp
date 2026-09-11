@@ -144,8 +144,8 @@ def load_snapshot_settings(
     config_base = Path.cwd()
     if config_path is not None:
         try:
-            config_file = Path(config_path)
-            config_base = config_file.expanduser().absolute().parent
+            config_file = Path(config_path).expanduser().absolute()
+            config_base = config_file.parent
         except (OSError, RuntimeError, TypeError, ValueError):
             raise ConfigError("snapshot configuration could not be read") from None
         config = _load_snapshot_config(config_file)
@@ -153,8 +153,15 @@ def load_snapshot_settings(
         if paths is not None and not isinstance(paths, dict):
             raise ConfigError("snapshot configuration paths must be a TOML table")
         if isinstance(paths, dict):
-            config_state = _nonempty_setting(paths.get("state"))
-            config_cache = _nonempty_setting(paths.get("cache"))
+            # Empty TOML strings are the unset placeholders emitted by init.
+            state_value = paths.get("state")
+            cache_value = paths.get("cache")
+            config_state = _nonempty_setting(None if state_value == "" else state_value)
+            config_cache = (
+                _nonempty_setting(None if cache_value == "" else cache_value)
+                if require_cache
+                else None
+            )
         else:
             config_state = None
             config_cache = None
@@ -165,8 +172,10 @@ def load_snapshot_settings(
     explicit_state = _nonempty_setting(
         os.fspath(state_dir) if state_dir is not None else None
     )
-    explicit_cache = _nonempty_setting(
-        os.fspath(cache_dir) if cache_dir is not None else None
+    explicit_cache = (
+        _nonempty_setting(os.fspath(cache_dir) if cache_dir is not None else None)
+        if require_cache
+        else None
     )
     environment_state = (
         None
@@ -175,7 +184,7 @@ def load_snapshot_settings(
     )
     environment_cache = (
         None
-        if explicit_cache is not None
+        if not require_cache or explicit_cache is not None
         else _nonempty_setting(environment.get(_SNAPSHOT_CACHE_ENV))
     )
     selected_state = explicit_state or environment_state or config_state

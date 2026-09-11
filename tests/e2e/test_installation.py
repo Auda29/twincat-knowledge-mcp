@@ -379,6 +379,21 @@ def test_wheel_installs_without_source_checkout(
     snapshot_cache = operator_dir / "snapshot-cache"
     snapshot_state.mkdir()
     snapshot_cache.mkdir()
+    snapshot_config = operator_dir / "snapshot-cli.toml"
+    created = _run(
+        [
+            *_console_command(python, console_script),
+            "init",
+            "--config",
+            snapshot_config,
+        ],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    config_before = snapshot_config.read_bytes()
+    snapshot_env = dict(env, HOME=str(operator_dir), USERPROFILE=str(operator_dir))
     activate_a = [
         *_console_command(python, console_script),
         "corpus",
@@ -392,7 +407,13 @@ def test_wheel_installs_without_source_checkout(
         snapshot_cache,
         "--json",
     ]
-    selected_a = _run(activate_a, cwd=foreign_cwd, env=env, timeout=30)
+    selected_a = _run(
+        [*activate_a, "--config", "~/snapshot-cli.toml"],
+        cwd=foreign_cwd,
+        env=snapshot_env,
+        timeout=30,
+    )
+    assert snapshot_config.read_bytes() == config_before
     assert selected_a.returncode == 0, selected_a.stderr
     assert json.loads(selected_a.stdout)["active"]["manifest_sha256"] == fingerprint
     assert selected_a.stderr == ""
@@ -417,6 +438,28 @@ def test_wheel_installs_without_source_checkout(
     assert listed_report["active"]["manifest_sha256"] == fingerprint
     assert "package_path" not in listed.stdout
     assert listed.stderr == ""
+    list_config = operator_dir / "state-only.toml"
+    list_config.write_text(
+        '[paths]\nstate="snapshot-state"\ncache=42\n', encoding="utf-8"
+    )
+    pointer_before_list = (snapshot_state / "active.json").read_bytes()
+    cache_ignored = _run(
+        [
+            *_console_command(python, console_script),
+            "corpus",
+            "list",
+            "--config",
+            "~/state-only.toml",
+            "--json",
+        ],
+        cwd=foreign_cwd,
+        env=dict(snapshot_env, TCK_CACHE_DIR=""),
+        timeout=30,
+    )
+    assert cache_ignored.returncode == 0, cache_ignored.stdout + cache_ignored.stderr
+    assert json.loads(cache_ignored.stdout)["active"]["manifest_sha256"] == fingerprint
+    assert (snapshot_state / "active.json").read_bytes() == pointer_before_list
+    assert list(snapshot_cache.iterdir()) == []
 
     activate_b = activate_a.copy()
     activate_b[activate_b.index(package)] = package_b
