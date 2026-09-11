@@ -11,7 +11,11 @@ priority as snapshot commands: explicit flags, `TCK_STATE_DIR` /
 `TCK_CACHE_DIR`, then `[paths].state` / `[paths].cache` in TOML. Relative TOML
 paths are anchored to the config file. Empty TOML placeholders are unset.
 Configuration files are bounded regular UTF-8 TOML files; malformed files,
-unsafe file types, invalid values, and invalid selected paths fail closed.
+unsafe file types, invalid values, and invalid selected paths fail closed. An
+explicitly supplied missing config file also fails closed, even when flags
+provide both selected paths. Omitted `--config` means unconfigured; it is not
+an instruction to ignore a path that was supplied. Empty explicit serve path
+values are invalid and are checked before path normalization.
 
 With no selected state or cache path, the server starts with
 `TopicQueryService(None)`. Discovery and the three topic tools remain available,
@@ -20,13 +24,15 @@ snapshot paths has the same behavior. The command never creates configuration,
 state, cache, locks, package files, or downloads.
 
 A selected state directory must already exist. If it has no `active.json`, it
-may start without a cache for discovery-only use. A cache without state, or a
-state directory with no active selection plus a configured cache, is rejected as
-ambiguous partial configuration. An active selection requires a configured,
-existing external cache. The selected package is verified and loaded once
-before the stdio loop; the loaded package stays pinned for that process and is
-closed on EOF, runtime failure, or interruption. Activation and reload are
-operator operations performed by a later process.
+may start without a cache for discovery-only use. It also starts with a
+configured, existing valid cache and reports `not_available`; this is the
+normal configured first-run state. A missing state directory, corrupt pointer,
+wrong package pin, missing package, or invalid cache fails closed before MCP
+protocol output and does not write state or cache files. An active selection
+requires a configured, existing external cache. The selected package is
+verified and loaded once before the stdio loop; the loaded package stays pinned
+for that process and is closed on EOF, runtime failure, or interruption.
+Activation and reload are operator operations performed by a later process.
 
 ## Protocol behavior
 

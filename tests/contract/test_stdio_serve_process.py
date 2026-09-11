@@ -3,11 +3,14 @@ from __future__ import annotations
 import json
 import os
 import queue
+import signal
 import subprocess
 import sys
 import threading
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -129,10 +132,22 @@ def test_configured_empty_state_starts_not_available_in_real_process(
     cache = tmp_path / "cache"
     state.mkdir()
     cache.mkdir()
-    input_text = "\n".join(
+    pipe = _InteractivePipe(
         [
-            json.dumps(_request(1, "server/discover")),
-            json.dumps(
+            sys.executable,
+            "-m",
+            "twincat_knowledge",
+            "serve",
+            "--state-dir",
+            str(state),
+            "--cache-dir",
+            str(cache),
+        ]
+    )
+    try:
+        responses = [
+            pipe.send(_request(1, "server/discover")),
+            pipe.send(
                 _request(
                     2,
                     "tools/call",
@@ -140,22 +155,51 @@ def test_configured_empty_state_starts_not_available_in_real_process(
                     arguments={},
                 )
             ),
-            "",
         ]
-    )
+    finally:
+        returncode, stderr = pipe.close()
 
-    result = _serve_process(
-        ["--state-dir", str(state), "--cache-dir", str(cache)],
-        input_text=input_text,
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert result.stderr == ""
-    responses = [json.loads(line) for line in result.stdout.splitlines()]
+    assert returncode == 0, stderr
+    assert stderr == ""
     assert [response["id"] for response in responses] == [1, 2]
     assert responses[1]["result"]["structuredContent"]["status"] == "not_available"
     assert list(cache.iterdir()) == []
     assert list(state.iterdir()) == []
+
+
+def test_sigint_reaps_real_server_and_preserves_fixture_state(
+    tmp_path: Path,
+) -> None:
+    if os.name == "nt":
+        pytest.skip("native Windows SIGINT behavior is not asserted until Windows CI")
+    state = tmp_path / "state"
+    cache = tmp_path / "cache"
+    state.mkdir()
+    cache.mkdir()
+    pipe = _InteractivePipe(
+        [
+            sys.executable,
+            "-m",
+            "twincat_knowledge",
+            "serve",
+            "--state-dir",
+            str(state),
+            "--cache-dir",
+            str(cache),
+        ]
+    )
+    state_before = sorted(path.name for path in state.iterdir())
+    try:
+        response = pipe.send(_request(1, "server/discover"))
+        assert response["id"] == 1
+        os.kill(pipe.process.pid, signal.SIGINT)
+    finally:
+        returncode, stderr = pipe.close()
+
+    assert returncode == 1
+    assert stderr == "serve startup failed\n"
+    assert sorted(path.name for path in state.iterdir()) == state_before
+    assert list(cache.iterdir()) == []
 
 
 def test_malformed_config_fails_before_protocol_in_real_process(tmp_path: Path) -> None:
@@ -167,6 +211,64 @@ def test_malformed_config_fails_before_protocol_in_real_process(tmp_path: Path) 
     assert result.returncode == 1
     assert result.stdout == ""
     assert result.stderr == "serve startup failed\n"
+
+
+def _assert_serve_invalid_startup_state_fails_closed(
+    tmp_path: Path, scenario: str
+) -> None:
+    state = tmp_path / "state"
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    if scenario != "missing-state":
+        state.mkdir()
+    if scenario == "corrupt-pointer":
+        (state / "active.json").write_text("{", encoding="utf-8")
+    elif scenario == "wrong-pin":
+        package = tmp_path / "package"
+        package.mkdir()
+        (state / "active.json").write_text(
+            json.dumps(
+                {
+                    "format_version": "1.0",
+                    "active": {
+                        "package_path": str(package.resolve()),
+                        "manifest_sha256": "0" * 64,
+                        "snapshot_id": "wrong-pin",
+                    },
+                    "previous": None,
+                }
+            ),
+            encoding="utf-8",
+        )
+    elif scenario == "invalid-cache":
+        cache.rmdir()
+
+    state_before = (
+        None
+        if not state.exists()
+        else {path.name: path.read_bytes() for path in state.iterdir()}
+    )
+    result = _serve_process(
+        ["--state-dir", str(state), "--cache-dir", str(cache)], input_text="\n"
+    )
+
+    assert result.returncode == 1
+    assert result.stdout == ""
+    assert result.stderr == "serve startup failed\n"
+    assert not cache.exists() or list(cache.iterdir()) == []
+    state_after = (
+        None
+        if not state.exists()
+        else {path.name: path.read_bytes() for path in state.iterdir()}
+    )
+    assert state_after == state_before
+
+
+@pytest.mark.parametrize(
+    "scenario", ["missing-state", "corrupt-pointer", "wrong-pin", "invalid-cache"]
+)
+def test_serve_invalid_startup_state_scenarios(tmp_path: Path, scenario: str) -> None:
+    _assert_serve_invalid_startup_state_fails_closed(tmp_path, scenario)
 
 
 def test_missing_explicit_config_fails_before_protocol_in_real_process(
