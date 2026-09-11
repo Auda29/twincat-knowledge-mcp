@@ -2,6 +2,8 @@
 
 ## Status
 
+**Feature-Umsetzung pausiert.** Aktuell gilt der begrenzte Konsolidierungsauftrag in [CONSOLIDATION.md](CONSOLIDATION.md); der belegte Stand steht in [STATUS.md](STATUS.md). Nach der Konsolidierung nicht automatisch mit neuen Features fortfahren. Die folgenden Produktanforderungen und Abnahmegrenzen bleiben unverändert verbindlich.
+
 Vom Nutzer beauftragtes Umsetzungsziel. Dieser Vertrag ist im Repository hinterlegt; allein das Schreiben dieser Datei aktiviert keinen nativen Hermes-Goal-Loop. Der Loop und die Subagent-Modellkonfiguration müssen in der ausführenden Hermes-Session aktiviert und geprüft werden.
 
 ## Outcome
