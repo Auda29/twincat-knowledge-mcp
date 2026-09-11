@@ -53,6 +53,7 @@ INDEX_FORMAT: Final = "sqlite-fts5"
 INDEX_VERSION: Final = SCHEMA_VERSION
 _SHA256 = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 _NONNEGATIVE = Annotated[int, Field(strict=True, ge=0)]
+_COUNT = Annotated[int, Field(strict=True, ge=0, le=MAX_TOPICS)]
 
 
 class TopicPackageError(RuntimeError):
@@ -110,7 +111,7 @@ class TopicPackageManifest(StrictModel):
     format_version: VersionText
     corpus_manifest: CorpusManifest
     files: tuple[TopicPackageFile, ...] = Field(min_length=2, max_length=2)
-    language_counts: dict[str, _NONNEGATIVE]
+    language_counts: dict[str, _COUNT]
     index_format: StrictStr
     index_version: VersionText
 
