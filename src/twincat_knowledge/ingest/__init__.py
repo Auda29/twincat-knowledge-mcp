@@ -14,6 +14,11 @@ from .infosys import (
     XMLDepthLimitError,
     read_infosys,
 )
+from .topic_hierarchy import (
+    TopicHierarchyExtractionError,
+    extract_topic_hierarchies,
+    extract_topic_hierarchy,
+)
 
 __all__ = [
     "InfoSysArchiveError",
@@ -27,5 +32,8 @@ __all__ = [
     "InfoSysXmlError",
     "UnsafeArchiveError",
     "XMLDepthLimitError",
+    "TopicHierarchyExtractionError",
+    "extract_topic_hierarchies",
+    "extract_topic_hierarchy",
     "read_infosys",
 ]
