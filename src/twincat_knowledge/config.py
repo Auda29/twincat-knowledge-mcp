@@ -45,6 +45,14 @@ class SnapshotSettings:
     cache_dir: Path | None
 
 
+@dataclass(frozen=True, slots=True)
+class OptionalSnapshotSettings:
+    """Resolved optional paths used by the first-run serving command."""
+
+    state_dir: Path | None
+    cache_dir: Path | None
+
+
 _MAX_SNAPSHOT_CONFIG_BYTES = 64 * 1024
 _SNAPSHOT_STATE_ENV = "TCK_STATE_DIR"
 _SNAPSHOT_CACHE_ENV = "TCK_CACHE_DIR"
@@ -196,6 +204,78 @@ def load_snapshot_settings(
     cache_base = Path.cwd() if explicit_cache or environment_cache else config_base
     return SnapshotSettings(
         state_dir=_resolve_snapshot_path(selected_state, base=state_base),
+        cache_dir=(
+            _resolve_snapshot_path(selected_cache, base=cache_base)
+            if selected_cache is not None
+            else None
+        ),
+    )
+
+
+def load_optional_snapshot_settings(
+    config_path: str | os.PathLike[str] | None = None,
+    *,
+    state_dir: str | os.PathLike[str] | None = None,
+    cache_dir: str | os.PathLike[str] | None = None,
+    environ: Mapping[str, str] | None = None,
+) -> OptionalSnapshotSettings:
+    """Resolve optional serving paths with flag/env/TOML priority."""
+    environment = os.environ if environ is None else environ
+    config: dict[str, Any] = {}
+    config_base = Path.cwd()
+    if config_path is not None:
+        try:
+            config_file = Path(config_path).expanduser().absolute()
+            config_base = config_file.parent
+            try:
+                config_file.lstat()
+            except FileNotFoundError:
+                pass
+            else:
+                config = _load_snapshot_config(config_file)
+        except (OSError, RuntimeError, TypeError, ValueError):
+            raise ConfigError("snapshot configuration could not be read") from None
+        paths = config.get("paths")
+        if paths is not None and not isinstance(paths, dict):
+            raise ConfigError("snapshot configuration paths must be a TOML table")
+        if isinstance(paths, dict):
+            state_value = paths.get("state")
+            cache_value = paths.get("cache")
+            config_state = _nonempty_setting(None if state_value == "" else state_value)
+            config_cache = _nonempty_setting(None if cache_value == "" else cache_value)
+        else:
+            config_state = None
+            config_cache = None
+    else:
+        config_state = None
+        config_cache = None
+
+    explicit_state = _nonempty_setting(
+        os.fspath(state_dir) if state_dir is not None else None
+    )
+    explicit_cache = _nonempty_setting(
+        os.fspath(cache_dir) if cache_dir is not None else None
+    )
+    environment_state = (
+        None
+        if explicit_state is not None
+        else _nonempty_setting(environment.get(_SNAPSHOT_STATE_ENV))
+    )
+    environment_cache = (
+        None
+        if explicit_cache is not None
+        else _nonempty_setting(environment.get(_SNAPSHOT_CACHE_ENV))
+    )
+    selected_state = explicit_state or environment_state or config_state
+    selected_cache = explicit_cache or environment_cache or config_cache
+    state_base = Path.cwd() if explicit_state or environment_state else config_base
+    cache_base = Path.cwd() if explicit_cache or environment_cache else config_base
+    return OptionalSnapshotSettings(
+        state_dir=(
+            _resolve_snapshot_path(selected_state, base=state_base)
+            if selected_state is not None
+            else None
+        ),
         cache_dir=(
             _resolve_snapshot_path(selected_cache, base=cache_base)
             if selected_cache is not None

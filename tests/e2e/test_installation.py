@@ -40,7 +40,12 @@ def _console_command(python: Path, script: Path) -> list[Path]:
 
 
 def _run(
-    args: list[str | Path], *, cwd: Path, env: dict[str, str], timeout: float
+    args: list[str | Path],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    timeout: float,
+    input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -49,6 +54,7 @@ def _run(
             env=env,
             capture_output=True,
             text=True,
+            input=input_text,
             check=False,
             timeout=timeout,
         )
@@ -150,6 +156,64 @@ def test_wheel_installs_without_source_checkout(
     assert version.returncode == 0, version.stderr
     assert version.stdout.strip() == "twincat-knowledge 0.1.0"
     assert version.stderr == ""
+
+    protocol_meta = {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {"name": "installed", "version": "1"},
+        "io.modelcontextprotocol/clientCapabilities": {},
+    }
+    serve_env = env.copy()
+    serve_env.pop("TCK_STATE_DIR", None)
+    serve_env.pop("TCK_CACHE_DIR", None)
+
+    def serve_request(request_id: int, method: str, **params: object) -> str:
+        request = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": {"_meta": protocol_meta, **params},
+        }
+        return json.dumps(request) + "\n"
+
+    discovery = _run(
+        [*_console_command(python, console_script), "serve", "--transport", "stdio"],
+        cwd=foreign_cwd,
+        env=serve_env,
+        timeout=30,
+        input_text=serve_request(1, "server/discover"),
+    )
+    listing = _run(
+        [*_console_command(python, console_script), "serve"],
+        cwd=foreign_cwd,
+        env=serve_env,
+        timeout=30,
+        input_text=serve_request(2, "tools/list"),
+    )
+    direct_call = _run(
+        [*_console_command(python, console_script), "serve"],
+        cwd=foreign_cwd,
+        env=serve_env,
+        timeout=30,
+        input_text=serve_request(
+            3,
+            "tools/call",
+            name="tc_get_corpus_status",
+            arguments={},
+        ),
+    )
+    assert all(result.returncode == 0 for result in (discovery, listing, direct_call))
+    assert all(result.stderr == "" for result in (discovery, listing, direct_call))
+    assert json.loads(discovery.stdout)["id"] == 1
+    listed_tools = json.loads(listing.stdout)["result"]["tools"]
+    assert [tool["name"] for tool in listed_tools] == [
+        "tc_get_corpus_status",
+        "tc_get_topic",
+        "tc_search",
+    ]
+    assert (
+        json.loads(direct_call.stdout)["result"]["structuredContent"]["status"]
+        == "not_available"
+    )
 
     # Exercise the new reader through the installed console entry point, not checkout.
     from zipfile import ZipFile
