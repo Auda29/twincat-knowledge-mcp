@@ -17,12 +17,22 @@ trail = graph.breadcrumb(children[0].canonical_id)
 
 ## Resolution contract
 
-Each input is freshly validated with `extract_topic_hierarchy` and copied into
-the graph. A parent is resolved by exact original topic ID only within
+Each input is freshly validated through the bounded primitive-copy seam in
+`ingest.topic_hierarchy` and copied into the graph. The graph derives both its
+stored `Topic` and hierarchy assessment from that same owned snapshot; it does
+not call a caller-supplied `model_dump` or `model_dump_json`. A parent is
+resolved by exact original topic ID only within
 `(source_id, snapshot_id, language)`. Libraries do not define identity scope,
 so an explicit cross-library link inside that scope is valid. A match in another
 source, snapshot, or language is rejected rather than crossed. A topic without
 an original ID is never a parent candidate.
+
+Before indexing, the graph recomputes `canonical_topic_id` from the owned
+snapshot's `source_id`, `snapshot_id`, `language`, and `locator`. A valid opaque
+but non-canonical input ID is rejected with a typed fixed graph error; the graph
+does not normalize or rewrite caller input IDs. This checks graph-key identity,
+not source-byte authenticity: `SourceReference.content_hash` is retained as
+provenance and must be verified by package validation, not by this projection.
 
 Only `Microsoft.Help.TocParent=-1` is a root. Missing/invalid hierarchy is
 reported as `hierarchy_unknown`, not as a root. A missing same-scope parent is

@@ -156,6 +156,58 @@ def _revalidate_topic(topic: Topic) -> Topic:
     return Topic.model_validate(_topic_payload(topic))
 
 
+def _extract_topic_hierarchy_from_snapshot(
+    checked: Topic,
+) -> TopicHierarchyAssessment:
+    """Assess an already-owned snapshot without reading its caller again.
+
+    This private seam is shared with the graph projection: callers must first
+    obtain ``checked`` from ``_revalidate_topic`` so the bounded primitive copy
+    remains the only read of an untrusted caller ``Topic``.
+    """
+    parent_items = tuple(
+        item for item in checked.metadata if item.name.casefold() == _PARENT_NAME
+    )
+    order_items = tuple(
+        item for item in checked.metadata if item.name.casefold() == _ORDER_NAME
+    )
+
+    diagnostics: list[HierarchyDiagnosticCode] = []
+    if not parent_items:
+        diagnostics.append(HierarchyDiagnosticCode.PARENT_MISSING)
+        hierarchy = None
+    elif len(parent_items) != 1:
+        diagnostics.append(HierarchyDiagnosticCode.PARENT_DUPLICATE)
+        hierarchy = None
+    else:
+        parent = parent_items[0].content
+        parent_code = _parent_diagnostic(parent)
+        if parent_code is not None:
+            diagnostics.append(parent_code)
+            hierarchy = None
+        elif not order_items:
+            diagnostics.append(HierarchyDiagnosticCode.ORDER_MISSING)
+            hierarchy = TopicHierarchy(parent_original_topic_id=parent, toc_order=None)
+        elif len(order_items) != 1:
+            diagnostics.append(HierarchyDiagnosticCode.ORDER_DUPLICATE)
+            hierarchy = TopicHierarchy(parent_original_topic_id=parent, toc_order=None)
+        else:
+            order, order_code = _parse_order(order_items[0].content)
+            if order_code is not None:
+                diagnostics.append(order_code)
+            hierarchy = TopicHierarchy(
+                parent_original_topic_id=parent,
+                toc_order=order,
+            )
+
+    return TopicHierarchyAssessment(
+        topic_id=checked.id,
+        source=checked.source,
+        hierarchy=hierarchy,
+        diagnostic_codes=tuple(diagnostics),
+    )
+
+
 def _parent_diagnostic(value: object) -> HierarchyDiagnosticCode | None:
     if not isinstance(value, str):
         return HierarchyDiagnosticCode.PARENT_MALFORMED
@@ -193,51 +245,7 @@ def extract_topic_hierarchy(topic: Topic) -> TopicHierarchyAssessment:
     """
     try:
         checked = _revalidate_topic(topic)
-        parent_items = tuple(
-            item for item in checked.metadata if item.name.casefold() == _PARENT_NAME
-        )
-        order_items = tuple(
-            item for item in checked.metadata if item.name.casefold() == _ORDER_NAME
-        )
-
-        diagnostics: list[HierarchyDiagnosticCode] = []
-        if not parent_items:
-            diagnostics.append(HierarchyDiagnosticCode.PARENT_MISSING)
-            hierarchy = None
-        elif len(parent_items) != 1:
-            diagnostics.append(HierarchyDiagnosticCode.PARENT_DUPLICATE)
-            hierarchy = None
-        else:
-            parent = parent_items[0].content
-            parent_code = _parent_diagnostic(parent)
-            if parent_code is not None:
-                diagnostics.append(parent_code)
-                hierarchy = None
-            elif not order_items:
-                diagnostics.append(HierarchyDiagnosticCode.ORDER_MISSING)
-                hierarchy = TopicHierarchy(
-                    parent_original_topic_id=parent, toc_order=None
-                )
-            elif len(order_items) != 1:
-                diagnostics.append(HierarchyDiagnosticCode.ORDER_DUPLICATE)
-                hierarchy = TopicHierarchy(
-                    parent_original_topic_id=parent, toc_order=None
-                )
-            else:
-                order, order_code = _parse_order(order_items[0].content)
-                if order_code is not None:
-                    diagnostics.append(order_code)
-                hierarchy = TopicHierarchy(
-                    parent_original_topic_id=parent,
-                    toc_order=order,
-                )
-
-        return TopicHierarchyAssessment(
-            topic_id=checked.id,
-            source=checked.source,
-            hierarchy=hierarchy,
-            diagnostic_codes=tuple(diagnostics),
-        )
+        return _extract_topic_hierarchy_from_snapshot(checked)
     except Exception:
         raise TopicHierarchyExtractionError("normalized topic is invalid") from None
 

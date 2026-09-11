@@ -1,9 +1,11 @@
 """Pure, bounded, immutable graph projection for explicit topic hierarchy metadata.
 
 The graph is deliberately separate from ``Topic`` and package formats.  It
-revalidates every topic through :func:`extract_topic_hierarchy`, resolves an
-original parent ID only in ``(source_id, snapshot_id, language)``, and never
-infers relationships from library, title, path, links, or input order.
+revalidates every topic through the bounded primitive-copy seam owned by
+``ingest.topic_hierarchy``, derives the stored topic and assessment from that
+same snapshot, resolves an original parent ID only in
+``(source_id, snapshot_id, language)``, and never infers relationships from
+library, title, path, links, or input order.
 
 ``MAX_GRAPH_DEPTH`` is an implementation limit.  Construction and breadcrumb
 walks are iterative, so a deep or hostile input cannot consume the Python call
@@ -21,10 +23,14 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import Final, Literal
 
+from twincat_knowledge.domain.identity import canonical_topic_id
 from twincat_knowledge.domain.provenance import SourceReference
 from twincat_knowledge.domain.topic_hierarchy import TopicHierarchy
 from twincat_knowledge.domain.topics import Topic
-from twincat_knowledge.ingest.topic_hierarchy import extract_topic_hierarchy
+from twincat_knowledge.ingest.topic_hierarchy import (
+    _extract_topic_hierarchy_from_snapshot,
+    _revalidate_topic,
+)
 
 MAX_GRAPH_TOPICS: Final = 100_000
 MAX_GRAPH_DEPTH: Final = 4_096
@@ -55,6 +61,10 @@ class TopicHierarchyGraphBoundsError(TopicHierarchyGraphValidationError):
 
 class TopicHierarchyGraphDuplicateCanonicalIDError(TopicHierarchyGraphValidationError):
     """Two supplied topics use the same canonical topic ID."""
+
+
+class TopicHierarchyGraphCanonicalIDError(TopicHierarchyGraphValidationError):
+    """A topic ID does not match its source-derived canonical identity."""
 
 
 class TopicHierarchyGraphScopeError(TopicHierarchyGraphValidationError):
@@ -313,9 +323,10 @@ def build_topic_hierarchy_graph(
     """Build a graph from a finite topic iterable.
 
     The iterable is consumed incrementally through ``max_topics + 1`` attempts.
-    Each topic is freshly checked by the reviewed hierarchy extractor and copied
-    into a validated immutable ``Topic`` before graph ownership begins.  No
-    caller iterator is closed by this function.
+    Each topic is freshly checked by the reviewed bounded primitive-copy helper
+    before graph ownership begins.  The returned checked topic and hierarchy
+    assessment share that one owned snapshot; no caller serializer is invoked.
+    No caller iterator is closed by this function.
     """
     topic_limit = _limit(max_topics, "max_topics", MAX_GRAPH_TOPICS)
     depth_limit = _limit(max_depth, "max_depth", MAX_GRAPH_DEPTH)
@@ -333,10 +344,18 @@ def build_topic_hierarchy_graph(
                 "topics must contain only Topic models"
             )
         try:
-            assessment = extract_topic_hierarchy(supplied)
-            checked = Topic.model_validate_json(supplied.model_dump_json())
+            checked = _revalidate_topic(supplied)
+            assessment = _extract_topic_hierarchy_from_snapshot(checked)
         except Exception:
             raise TopicHierarchyGraphValidationError("topic is invalid") from None
+        expected_id = canonical_topic_id(
+            checked.source.source_id,
+            checked.source.snapshot_id,
+            checked.language,
+            checked.source.locator,
+        )
+        if checked.id != expected_id:
+            raise TopicHierarchyGraphCanonicalIDError("topic canonical ID is invalid")
         if checked.id != assessment.topic_id or checked.source != assessment.source:
             raise TopicHierarchyGraphValidationError(
                 "topic hierarchy provenance is invalid"
@@ -506,6 +525,7 @@ __all__ = [
     "TopicHierarchyDiagnostic",
     "TopicHierarchyGraph",
     "TopicHierarchyGraphBoundsError",
+    "TopicHierarchyGraphCanonicalIDError",
     "TopicHierarchyGraphCycleError",
     "TopicHierarchyGraphDuplicateCanonicalIDError",
     "TopicHierarchyGraphError",

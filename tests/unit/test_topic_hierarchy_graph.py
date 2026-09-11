@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+from typing import Any, ClassVar
 
 import pytest
 from pydantic import ValidationError
@@ -181,6 +183,125 @@ def test_duplicate_canonical_ids_are_rejected() -> None:
         build_topic_hierarchy_graph((first, second))
 
 
+def test_noncanonical_opaque_id_is_rejected_without_rewriting_input() -> None:
+    topic = _topic("noncanonical")
+    forged = topic.model_copy(update={"id": "opaque-but-valid"})
+
+    with pytest.raises(TopicHierarchyGraphValidationError) as error:
+        build_topic_hierarchy_graph((forged,))
+
+    assert str(error.value) == "topic canonical ID is invalid"
+    assert forged.id == "opaque-but-valid"
+
+
+class _HostileSerializationTopic(Topic):
+    dump_calls: ClassVar[int] = 0
+
+    def model_dump_json(self, *args: Any, **kwargs: Any) -> str:
+        type(self).dump_calls += 1
+        data = json.loads(super().model_dump_json(*args, **kwargs))
+        data["metadata"] = [
+            {"name": "Microsoft.Help.TocParent", "content": "-1"},
+            {"name": "Microsoft.Help.TocOrder", "content": "999"},
+        ]
+        return json.dumps(data)
+
+
+def test_graph_owns_one_snapshot_instead_of_calling_topic_serializer() -> None:
+    parent = _topic("parent")
+    child = _HostileSerializationTopic.model_validate(
+        child_data := _topic("child", parent="help.parent").model_dump()
+    )
+
+    graph = build_topic_hierarchy_graph((parent, child))
+    node = graph.get_node(child.id)
+    assert node is not None
+    edge = next(item for item in graph.edges() if item.child_canonical_id == child.id)
+    assert _HostileSerializationTopic.dump_calls == 0
+    assert node.parent_original_topic_id == "help.parent"
+    assert node.topic.metadata[0].content == "help.parent"
+    assert edge.parent_original_topic_id == node.topic.metadata[0].content
+    assert edge.toc_order == 1
+    assert child_data["metadata"][0]["content"] == "help.parent"
+
+
+class _OverboundSerializationTopic(Topic):
+    dump_calls: ClassVar[int] = 0
+
+    def model_dump_json(self, *args: Any, **kwargs: Any) -> str:
+        type(self).dump_calls += 1
+        data = json.loads(super().model_dump_json(*args, **kwargs))
+        data["metadata"] = [
+            {"name": "Microsoft.Help.TocParent", "content": "-1"}
+        ] * 5_001
+        return json.dumps(data)
+
+
+def test_serializer_overbound_metadata_is_not_materialized() -> None:
+    topic = _OverboundSerializationTopic.model_validate(_topic("bounded").model_dump())
+
+    graph = build_topic_hierarchy_graph((topic,))
+
+    assert graph.get_node(topic.id) is not None
+    assert len(graph.get_node(topic.id).topic.metadata) == 2
+    assert _OverboundSerializationTopic.dump_calls == 0
+
+
+def test_actual_overbound_metadata_is_rejected_before_materialization() -> None:
+    ordinary = _topic("overbound")
+    topic = Topic.model_construct(
+        **{
+            **ordinary.__dict__,
+            "metadata": tuple(
+                TopicMetadata(name="Microsoft.Help.TocParent", content="-1")
+                for _ in range(4_097)
+            ),
+        }
+    )
+
+    with pytest.raises(TopicHierarchyGraphValidationError) as error:
+        build_topic_hierarchy_graph((topic,))
+
+    assert str(error.value) == "topic is invalid"
+
+
+class _StatefulMetadata(list[TopicMetadata]):
+    def __init__(self, first: list[TopicMetadata], second: list[TopicMetadata]) -> None:
+        super().__init__(first)
+        self._second = second
+        self.reads = 0
+
+    def __iter__(self):  # type: ignore[no-untyped-def]
+        self.reads += 1
+        return iter(super().__iter__() if self.reads == 1 else self._second)
+
+
+def test_graph_does_not_repeat_stateful_metadata_reads() -> None:
+    parent = _topic("parent")
+    ordinary_child = _topic("child", parent="help.parent")
+    first = list(ordinary_child.metadata)
+    second = [
+        TopicMetadata(name="Microsoft.Help.TocParent", content="-1"),
+        TopicMetadata(name="Microsoft.Help.TocOrder", content="999"),
+    ]
+    stateful = _StatefulMetadata(first, second)
+    child = Topic.model_construct(
+        **{
+            **ordinary_child.__dict__,
+            "metadata": stateful,
+        }
+    )
+
+    graph = build_topic_hierarchy_graph((parent, child))
+    node = graph.get_node(child.id)
+    assert node is not None
+    edge = next(item for item in graph.edges() if item.child_canonical_id == child.id)
+    assert stateful.reads == 1
+    assert node.parent_original_topic_id == "help.parent"
+    assert edge.parent_original_topic_id == "help.parent"
+    assert edge.toc_order == 1
+
+
 def test_self_and_long_cycles_are_rejected_iteratively() -> None:
     self_cycle = _topic("self", parent="help.self")
     with pytest.raises(TopicHierarchyGraphCycleError):
@@ -263,6 +384,6 @@ def test_cancellation_propagates(monkeypatch: pytest.MonkeyPatch) -> None:
     def cancel(_topic: Topic):
         raise asyncio.CancelledError
 
-    monkeypatch.setattr(module, "extract_topic_hierarchy", cancel)
+    monkeypatch.setattr(module, "_extract_topic_hierarchy_from_snapshot", cancel)
     with pytest.raises(asyncio.CancelledError):
         build_topic_hierarchy_graph((_topic("cancel"),))
