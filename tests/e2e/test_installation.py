@@ -297,6 +297,8 @@ def test_wheel_installs_without_source_checkout(
         archive.writestr(
             "sample/1033/1.html",
             "<html><head><title>Synthetic</title></head><body><article>"
+            '<meta name="Microsoft.Help.TocParent" content="-1"/>'
+            '<meta name="Microsoft.Help.TocOrder" content="7"/>'
             "<pre>A<br/> B</pre></article></body></html>",
         )
     inspection = _run(
@@ -354,6 +356,16 @@ def test_wheel_installs_without_source_checkout(
             "assert t.sections[0].source.section_id == t.sections[0].id; "
             "assert t.sections[0].source.snapshot_id == 'v1'; "
             "assert Topic.model_validate_json(t.model_dump_json()) == t; "
+            "import twincat_knowledge.ingest.topic_hierarchy as hierarchy; "
+            "assert Path(hierarchy.__file__).is_relative_to(Path(sys.prefix)); "
+            "assessment = hierarchy.extract_topic_hierarchy(t); "
+            "assert assessment.topic_id == t.id; "
+            "assert assessment.source == t.source; "
+            "assert assessment.source.section_id is None; "
+            "assert assessment.hierarchy is not None; "
+            "assert assessment.hierarchy.parent_original_topic_id == '-1'; "
+            "assert assessment.hierarchy.toc_order == 7; "
+            "assert assessment.diagnostic_codes == (); "
             "assert snapshot.applicability == 'unknown'; "
             "import twincat_knowledge.corpus.topic_export as export; "
             "assert Path(export.__file__).is_relative_to(Path(sys.prefix)); "
