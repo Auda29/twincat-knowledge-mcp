@@ -1,4 +1,53 @@
-# Projektstatus — konsolidierte Basis und begrenzte Browse-Fortsetzung
+# Projektstatus — Integrationscheckpoint vor Domain-Browse
+
+## Aktueller Auftrag vom 14. September 2026
+
+Die vorhandenen PRs #3–#18 werden abhängigkeitsgeordnet nach `main` integriert;
+anschließend werden nur nachweislich integrierte Remote-Branches entfernt.
+Keine neue Produktentwicklung und kein Release. [MERGE_POLICY.md](MERGE_POLICY.md)
+ist maßgeblich; normale Entwicklungs-CI benötigt keinen Artefaktupload.
+
+Dieser Dateistand enthält die Komponenten #3–#17 einschließlich der gemeinsamen
+Snapshot-/stdio-/Hierarchie-Tests. Domain-Browse aus [#18](https://github.com/Auda29/twincat-knowledge-mcp/pull/18)
+ist der nächste getrennte Integrationsschritt. Ein lokaler Kandidatenstand ist
+kein Nachweis eines Remote-Merges: tatsächliche Merge-SHAs und native CI-Nachweise
+stehen in den jeweiligen GitHub-PRs und ihren Integrationskommentaren.
+
+### Prüf- und Integrationsnachweise
+
+- Unabhängige GPT-Luna-Review der CI-Policy: PASS für #3–#18; Produktcode unverändert.
+- Die historischen Reviewlücken der installierten Test-Addenda #7 und #10 sind
+  unabhängig am jeweiligen Policy-Head geschlossen (Wheel und sdist je bestanden).
+- Kombinierte Kandidaten #11/#13/#14: unabhängig geprüft, 281/330/346 Tests auf
+  Linux 3.12.10 bestanden. #16: 403 Tests bestanden.
+- Der rohe #17-Integrationskandidat zeigte zwei echte installierte Testfehler.
+  Die bereits vorhandene Konsolidierungskorrektur richtet neun Testzeilen an der
+  Parent-/Child-Fixture aus. Keine Assertions entfernt, kein Produktcode geändert.
+  Korrigierter Tree `16e7cf5faa4d96729e28ef2f3c6ac92d0ea29ee9`:
+  unabhängig 422 Tests auf Linux 3.12.10; Koordinator 422 auf 3.12.10 und 3.13.12.
+- Der verbleibende Konsolidierungs-PR übernimmt nur Dokumentation und die bereits
+  vorhandenen exakten Python-Pins 3.12.10/3.13.12, keinen weiteren Produktcode.
+- Jeder tatsächliche Merge erfordert aktuelle native Windows-/Linux-CI und eine
+  verifizierte Bindung des veröffentlichten Trees an die unabhängige Review.
+  Lokale Testzahlen ersetzen diese Remote-Prüfung nicht.
+
+Nach #18 sind das tatsächliche `main` und anschließend jede Branchlöschung
+zurückzuprüfen. Lokale Arbeitsverzeichnisse, ungesicherte Dateien und historische
+Archive werden nicht pauschal gelöscht. Explizite Paketbereitstellung bleibt ein
+separater Auftrag mit erfolgreichem Upload/Download und Prüfsummenprüfung.
+
+**Offen bleiben:** vollständiger Toolkatalog, `tc_browse_topics`-MCP-Anbindung,
+HTTP/Auth/Hosts, universelles Wirebudget, SDK-Supportability, reale zulässige
+InfoSys-/Hardwarequellen und Evaluation sowie Produkt-/Release-Abnahme.
+Exakt drei MCP-Tools bleiben exponiert: `tc_get_corpus_status`, `tc_get_topic`,
+`tc_search`.
+
+## Historisches Statusregister vom 11. September 2026
+
+Die folgenden Stände, Draft-/Branchangaben, Quotenblocker und Testzahlen sind
+historische Nachweise und **keine aktuellen Handlungsanweisungen oder Merge-Gates**.
+Sie bleiben zur Herkunfts- und Reviewnachverfolgung erhalten.
+
 
 > **Aktuelle Regel vom 14.09.2026:** [MERGE_POLICY.md](MERGE_POLICY.md)
 > ersetzt die nachfolgend historisch dokumentierte Upload-Pflicht. Für
