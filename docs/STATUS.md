@@ -1,5 +1,10 @@
 # Projektstatus — konsolidierte Basis und begrenzte Browse-Fortsetzung
 
+> **Aktuelle Regel vom 14.09.2026:** [MERGE_POLICY.md](MERGE_POLICY.md)
+> ersetzt die nachfolgend historisch dokumentierte Upload-Pflicht. Für
+> Entwicklungsmerges bleiben Tests, Paketbau, Installation und Review Pflicht;
+> die Paketablage ist nur bei ausdrücklichem Auslieferungsauftrag erforderlich.
+
 Stand: 2026-09-11. Aktueller Auftrag: vorhandenen Domain-Browse-Service gemäß [GOAL.md](GOAL.md) fertigstellen und unabhängig auf der konsolidierten Basis prüfen. Die Grenzen aus [CONSOLIDATION.md](CONSOLIDATION.md) bleiben verbindlich. **Browse-Code unabhängig abgenommen; Auslieferung/Main-Merge extern blockiert. Teilabschluss, keine Produktabnahme, kein Release. Autonome Arbeit beendet; keine weiteren Features.**
 
 ## Arbeitsstände

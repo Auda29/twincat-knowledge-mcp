@@ -1,5 +1,10 @@
 # Konsolidierungsauftrag — aktiver Arbeitsmodus
 
+> **Aktuelle Regel vom 14.09.2026:** [MERGE_POLICY.md](MERGE_POLICY.md)
+> ersetzt die nachfolgend historisch dokumentierte Upload-Pflicht. Für
+> Entwicklungsmerges bleiben Tests, Paketbau, Installation und Review Pflicht;
+> die Paketablage ist nur bei ausdrücklichem Auslieferungsauftrag erforderlich.
+
 Die Konsolidierung ist mit externem CI-Auslieferungsblocker teilabgeschlossen. Der Nutzer hat anschließend ausschließlich die Fertigstellung und Abnahme des vorhandenen Domain-Browse-Service freigegeben; der aktuelle Umfang steht in `GOAL.md`. Der übrige Feature-Ausbau bleibt pausiert. Die folgenden Sicherungs-, Review- und Merge-Grenzen gelten weiter; keine Abnahmebedingung in `PLAN.md` wird ersetzt.
 
 ## Reihenfolge
