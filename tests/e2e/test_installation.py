@@ -216,6 +216,17 @@ def test_wheel_installs_without_source_checkout(
             "assert t.sections[0].source.snapshot_id == 'v1'; "
             "assert Topic.model_validate_json(t.model_dump_json()) == t; "
             "assert snapshot.applicability == 'unknown'; "
+            "import twincat_knowledge.corpus.topic_index as storage; "
+            "assert Path(storage.__file__).is_relative_to(Path(sys.prefix)); "
+            "db = p.with_name('installed-topic-index.sqlite'); "
+            "assert storage.create_topic_index(db, topics) == 1; "
+            "before = hashlib.sha256(db.read_bytes()).hexdigest(); "
+            "index = storage.TopicIndex(db); "
+            "assert index.get_topic(t.id) == t; "
+            "assert index.search('Synthetic', language='en', "
+            "library='sample', source_snapshot_id='v1') == (t,); "
+            "index.__exit__(None, None, None); "
+            "assert hashlib.sha256(db.read_bytes()).hexdigest() == before; "
             "print('installed normalization verified')",
             source,
         ],
