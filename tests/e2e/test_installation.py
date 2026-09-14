@@ -296,10 +296,19 @@ def test_wheel_installs_without_source_checkout(
     with ZipFile(source, "w") as archive:
         archive.writestr(
             "sample/1033/1.html",
-            "<html><head><title>Synthetic</title></head><body><article>"
+            "<html><head><title>Parent</title></head><body><article>"
+            '<meta name="Microsoft.Help.Id" content="help.parent"/>'
             '<meta name="Microsoft.Help.TocParent" content="-1"/>'
-            '<meta name="Microsoft.Help.TocOrder" content="7"/>'
-            "<pre>A<br/> B</pre></article></body></html>",
+            '<meta name="Microsoft.Help.TocOrder" content="1"/>'
+            "<pre>Parent source content</pre></article></body></html>",
+        )
+        archive.writestr(
+            "sample/1033/2.html",
+            "<html><head><title>Child</title></head><body><article>"
+            '<meta name="Microsoft.Help.Id" content="help.child"/>'
+            '<meta name="Microsoft.Help.TocParent" content="help.parent"/>'
+            '<meta name="Microsoft.Help.TocOrder" content="2"/>'
+            "<pre>Child source content</pre></article></body></html>",
         )
     inspection = _run(
         [
@@ -312,7 +321,7 @@ def test_wheel_installs_without_source_checkout(
             "--language",
             "en",
             "--title",
-            "Synthetic",
+            "Parent",
         ],
         cwd=foreign_cwd,
         env=env,
@@ -338,6 +347,7 @@ def test_wheel_installs_without_source_checkout(
             "from twincat_knowledge.ingest.infosys import read_infosys; "
             "from twincat_knowledge.domain.models import SourceSnapshot; "
             "from twincat_knowledge.domain.topics import Topic; "
+            "from twincat_knowledge.domain.identity import canonical_topic_id; "
             "assert Path(module.__file__).is_relative_to(Path(sys.prefix)); "
             "p = Path(sys.argv[1]); "
             "snapshot = SourceSnapshot(source_id='fixture', snapshot_id='v1', "
@@ -347,15 +357,29 @@ def test_wheel_installs_without_source_checkout(
             "parser_version='test'); "
             "raw = read_infosys(p, source_id='fixture', snapshot_id='v1'); "
             "topics = module.normalize_infosys(raw, (snapshot,)); "
-            "assert len(topics) == 1; "
-            "t = topics[0]; "
-            "assert t.title == 'Synthetic'; "
-            "assert t.source.locator == 'sample/1033/1.html'; "
-            "assert t.source.content_hash == raw[0].source.content_hash; "
-            "assert t.sections[0].code == raw[0].sections[0].code; "
+            "assert len(topics) == 2; "
+            "by_locator = {t.source.locator: t for t in topics}; "
+            "t = by_locator['sample/1033/1.html']; "
+            "child = by_locator['sample/1033/2.html']; "
+            "raw_by_locator = {r.source.locator: r for r in raw}; "
+            "assert t.title == 'Parent'; "
+            "assert child.title == 'Child'; "
+            "assert t.id == canonical_topic_id('fixture', 'v1', 'en', "
+            "t.source.locator); "
+            "assert child.id == canonical_topic_id('fixture', 'v1', 'en', "
+            "child.source.locator); "
+            "assert t.source.content_hash == raw_by_locator[t.source.locator]."
+            "source.content_hash; "
+            "assert child.source.content_hash == raw_by_locator[child.source.locator]."
+            "source.content_hash; "
+            "assert t.sections[0].code == 'Parent source content'; "
+            "assert child.sections[0].code == 'Child source content'; "
             "assert t.sections[0].source.section_id == t.sections[0].id; "
+            "assert child.sections[0].source.section_id == child.sections[0].id; "
             "assert t.sections[0].source.snapshot_id == 'v1'; "
+            "assert child.sections[0].source.snapshot_id == 'v1'; "
             "assert Topic.model_validate_json(t.model_dump_json()) == t; "
+            "assert Topic.model_validate_json(child.model_dump_json()) == child; "
             "import twincat_knowledge.ingest.topic_hierarchy as hierarchy; "
             "assert Path(hierarchy.__file__).is_relative_to(Path(sys.prefix)); "
             "assessment = hierarchy.extract_topic_hierarchy(t); "
@@ -364,8 +388,14 @@ def test_wheel_installs_without_source_checkout(
             "assert assessment.source.section_id is None; "
             "assert assessment.hierarchy is not None; "
             "assert assessment.hierarchy.parent_original_topic_id == '-1'; "
-            "assert assessment.hierarchy.toc_order == 7; "
+            "assert assessment.hierarchy.toc_order == 1; "
             "assert assessment.diagnostic_codes == (); "
+            "child_assessment = hierarchy.extract_topic_hierarchy(child); "
+            "assert child_assessment.hierarchy is not None; "
+            "assert child_assessment.hierarchy.parent_original_topic_id == "
+            "'help.parent'; "
+            "assert child_assessment.hierarchy.toc_order == 2; "
+            "assert child_assessment.diagnostic_codes == (); "
             "assert snapshot.applicability == 'unknown'; "
             "import twincat_knowledge.corpus.topic_export as export; "
             "assert Path(export.__file__).is_relative_to(Path(sys.prefix)); "
@@ -386,13 +416,14 @@ def test_wheel_installs_without_source_checkout(
             "assert Path(identity.__file__).is_relative_to(Path(sys.prefix)); "
             "manifest = CorpusManifest(package_schema_version='1.0', "
             "snapshot_id='package-generation', created_at=snapshot.imported_at, "
-            "sources=(snapshot,), inventory=InventoryBalance(documents_total=1, "
-            "documents_imported=1, documents_skipped=0, documents_failed=0), "
-            "entity_counts=EntityCounts(topics=1, sections=len(t.sections))); "
+            "sources=(snapshot,), inventory=InventoryBalance(documents_total=2, "
+            "documents_imported=2, documents_skipped=0, documents_failed=0), "
+            "entity_counts=EntityCounts(topics=2, sections=len(t.sections) + "
+            "len(child.sections))); "
             "validated = validation.validate_topic_corpus(manifest, iter(topics)); "
-            "assert validated.topic_count == 1; "
-            "assert validated.section_count == len(t.sections); "
-            "assert dict(validated.language_counts) == {'en': 1}; "
+            "assert validated.topic_count == 2; "
+            "assert validated.section_count == len(t.sections) + len(child.sections); "
+            "assert dict(validated.language_counts) == {'en': 2}; "
             "import twincat_knowledge.corpus.topic_package as packages; "
             "assert Path(packages.__file__).is_relative_to(Path(sys.prefix)); "
             "built = packages.build_topic_package("
@@ -413,10 +444,33 @@ def test_wheel_installs_without_source_checkout(
             "loaded = loader.load_topic_package(built.path, "
             "expected_manifest_sha256=built.manifest_sha256, cache_dir=cache); "
             "assert loaded.manifest == built.manifest; "
-            "assert loaded.summary.topic_count == 1; "
-            "assert loaded.index.get_topic(t.id) == t; "
-            "assert loaded.index.search('Synthetic', language='en', "
+            "assert loaded.summary.topic_count == 2; "
+            "loaded_topics = tuple(loaded.index.get_topic(item.id) "
+            "for item in topics); "
+            "assert loaded_topics == topics; "
+            "loaded_parent, loaded_child = loaded_topics; "
+            "assert loaded_parent.source.content_hash == t.source.content_hash; "
+            "assert loaded_child.source.content_hash == child.source.content_hash; "
+            "assert loaded.index.search('Parent', language='en', "
             "library='sample', source_snapshot_id='v1') == (t,); "
+            "import twincat_knowledge.corpus.topic_hierarchy_graph as graph_module; "
+            "assert Path(graph_module.__file__).is_relative_to(Path(sys.prefix)); "
+            "graph = graph_module.build_topic_hierarchy_graph(loaded_topics); "
+            "assert graph.has_hierarchy; "
+            "assert tuple(n.canonical_id for n in graph.roots()) == (t.id,); "
+            "assert tuple(n.canonical_id for n in graph.direct_children(t.id)) == "
+            "(child.id,); "
+            "edge = next(e for e in graph.edges() if "
+            "e.child_canonical_id == child.id); "
+            "assert edge.parent_canonical_id == t.id; "
+            "assert edge.parent_original_topic_id == 'help.parent'; "
+            "assert edge.source == child.source; "
+            "breadcrumb = graph.breadcrumb(child.id); "
+            "assert breadcrumb is not None and breadcrumb.diagnostic is None; "
+            "assert tuple(n.canonical_id for n in breadcrumb.items) == "
+            "(t.id, child.id); "
+            "assert graph.get_node(child.id).topic.source.content_hash == "
+            "child.source.content_hash; "
             "import json; "
             "import twincat_knowledge.services.topic_queries as queries; "
             "import twincat_knowledge.services.query_contracts as contracts; "
@@ -424,17 +478,17 @@ def test_wheel_installs_without_source_checkout(
             "assert all(Path(m.__file__).is_relative_to(Path(sys.prefix)) "
             "for m in (queries, contracts, cursors)); "
             "service = queries.TopicQueryService(loaded); "
-            "found = service.search(contracts.SearchInput(query='Synthetic')); "
+            "found = service.search(contracts.SearchInput(query='Parent')); "
             "assert found.status == 'ok' and len(found.data.items) == 1; "
             "assert found.data.items[0].id == t.id; "
             "assert found.sources[0].applicability == 'unknown'; "
             "detail = service.get_topic(contracts.GetTopicInput(topic_id=t.id)); "
             "assert detail.status == 'ok' and detail.data.complete; "
-            "assert detail.data.sections[0].text == t.sections[0].text; "
+            "assert detail.data.sections[0].code == t.sections[0].code; "
             "status = service.get_corpus_status(contracts.CorpusStatusInput()); "
-            "assert status.status == 'ok' and status.data.topic_count == 1; "
+            "assert status.status == 'ok' and status.data.topic_count == 2; "
             "assert status.data.package_snapshot_id == 'package-generation'; "
-            "assert service.search(contracts.SearchInput(query='Synthetic', "
+            "assert service.search(contracts.SearchInput(query='Parent', "
             "filters=contracts.QueryFilters(snapshot_id='v1'))).status "
             "== 'not_found'; "
             "invalid = service.get_topic(contracts.GetTopicInput.model_construct("
@@ -446,7 +500,7 @@ def test_wheel_installs_without_source_checkout(
             "separators=(',', ':')).encode('ascii')) "
             "<= queries.MAX_DOMAIN_RESPONSE_BYTES for r in (found, detail, status)); "
             "loaded.close(); loaded.close(); "
-            "assert service.search(contracts.SearchInput(query='Synthetic'))"
+            "assert service.search(contracts.SearchInput(query='Parent'))"
             ".status == 'error'; "
             "assert list(cache.iterdir()) == []; "
             "assert all(hashlib.sha256((built.path / f.filename).read_bytes())"
@@ -460,7 +514,7 @@ def test_wheel_installs_without_source_checkout(
             "held = snapshots.load_active_snapshot(state, cache_dir=cache); "
             "held_service = queries.TopicQueryService(held); "
             "held_result = held_service.search("
-            "contracts.SearchInput(query='Synthetic')); "
+            "contracts.SearchInput(query='Parent')); "
             "assert held_result.snapshot_ids == ('package-generation',); "
             "snapshot_b = snapshot.model_copy(update={'snapshot_id': 'v2'}); "
             "raw_b = read_infosys(p, source_id='fixture', snapshot_id='v2'); "
@@ -473,11 +527,11 @@ def test_wheel_installs_without_source_checkout(
             "expected_manifest_sha256=built_b.manifest_sha256, cache_dir=cache); "
             "current = snapshots.load_active_snapshot(state, cache_dir=cache); "
             "current_result = queries.TopicQueryService(current).search("
-            "contracts.SearchInput(query='Synthetic')); "
+            "contracts.SearchInput(query='Parent')); "
             "assert current_result.status == 'ok'; "
             "assert current_result.snapshot_ids == ('package-next',); "
             "assert current_result.data.items[0].id == topics_b[0].id; "
-            "assert held_service.search(contracts.SearchInput(query='Synthetic')) "
+            "assert held_service.search(contracts.SearchInput(query='Parent')) "
             "== held_result; "
             "assert current.index.get_topic(topics_b[0].id) == topics_b[0]; "
             "assert current.index.get_topic(t.id) is None; "
@@ -487,7 +541,7 @@ def test_wheel_installs_without_source_checkout(
             "snapshots.rollback_snapshot(state, cache_dir=cache); "
             "restored = snapshots.load_active_snapshot(state, cache_dir=cache); "
             "restored_result = queries.TopicQueryService(restored).search("
-            "contracts.SearchInput(query='Synthetic')); "
+            "contracts.SearchInput(query='Parent')); "
             "assert restored_result == held_result; "
             "assert restored.index.get_topic(t.id) == t; restored.close(); "
             "held.close(); assert list(cache.iterdir()) == []; "
@@ -500,11 +554,11 @@ def test_wheel_installs_without_source_checkout(
             "import twincat_knowledge.corpus.topic_index as storage; "
             "assert Path(storage.__file__).is_relative_to(Path(sys.prefix)); "
             "db = p.with_name('installed-topic-index.sqlite'); "
-            "assert storage.create_topic_index(db, topics) == 1; "
+            "assert storage.create_topic_index(db, topics) == 2; "
             "before = hashlib.sha256(db.read_bytes()).hexdigest(); "
             "index = storage.TopicIndex(db); "
             "assert index.get_topic(t.id) == t; "
-            "assert index.search('Synthetic', language='en', "
+            "assert index.search('Parent', language='en', "
             "library='sample', source_snapshot_id='v1') == (t,); "
             "index.__exit__(None, None, None); "
             "assert hashlib.sha256(db.read_bytes()).hexdigest() == before; "
@@ -716,9 +770,9 @@ def test_wheel_installs_without_source_checkout(
     assert report["status"] == "valid"
     assert report["scope"] == "topic_package"
     assert report["manifest_sha256"] == fingerprint
-    assert report["topic_count"] == 1
-    assert report["section_count"] == 1
-    assert report["language_counts"] == {"en": 1}
+    assert report["topic_count"] == 2
+    assert report["section_count"] == 2
+    assert report["language_counts"] == {"en": 2}
     assert report["limitations"]
     assert str(operator_dir) not in validation.stdout
     assert "Synthetic" not in validation.stdout
@@ -732,7 +786,7 @@ def test_wheel_installs_without_source_checkout(
     assert human_validation.returncode == 0
     assert human_validation.stderr == ""
     assert human_validation.stdout.startswith(
-        "Topic package valid: 1 topics, 1 sections.\n"
+        "Topic package valid: 2 topics, 2 sections.\n"
     )
     assert "not source authenticity or rights" in human_validation.stdout
     assert "No package activation" in human_validation.stdout
