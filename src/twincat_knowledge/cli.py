@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import stat
 import sys
 from collections import Counter
 from collections.abc import Sequence
@@ -17,6 +18,7 @@ from .config import (
     ConfigFileExistsError,
     create_default_config,
     diagnose_config,
+    load_optional_snapshot_settings,
     load_snapshot_settings,
     render_diagnosis,
 )
@@ -78,6 +80,16 @@ def build_parser() -> argparse.ArgumentParser:
         snapshot_parser.add_argument("--state-dir", type=Path)
         snapshot_parser.add_argument("--cache-dir", type=Path)
         snapshot_parser.add_argument("--json", action="store_true")
+    serve_parser = commands.add_parser("serve", help="run the read-only MCP server")
+    serve_parser.add_argument(
+        "--transport",
+        choices=("stdio",),
+        default="stdio",
+        help="MCP transport (only stdio is supported)",
+    )
+    serve_parser.add_argument("--config", type=str)
+    serve_parser.add_argument("--state-dir", type=str)
+    serve_parser.add_argument("--cache-dir", type=str)
     return parser
 
 
@@ -387,6 +399,67 @@ def _run_snapshot_list(
         )
 
 
+def _require_existing_directory(path: Path) -> None:
+    try:
+        metadata = path.lstat()
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+            raise OSError
+        resolved = path.resolve(strict=True)
+        resolved_metadata = resolved.lstat()
+        if stat.S_ISLNK(resolved_metadata.st_mode) or not stat.S_ISDIR(
+            resolved_metadata.st_mode
+        ):
+            raise OSError
+    except (OSError, RuntimeError, ValueError):
+        raise ConfigError("snapshot cache is invalid") from None
+
+
+def _run_serve(
+    *,
+    config: Path | str | None,
+    state_dir: Path | str | None,
+    cache_dir: Path | str | None,
+) -> int:
+    """Load one immutable generation and keep it alive for one stdio session."""
+    loaded = None
+    failed = False
+    try:
+        from .corpus import topic_snapshot
+        from .mcp_api.topic_server import run_topic_stdio
+        from .services.topic_queries import TopicQueryService
+
+        settings = load_optional_snapshot_settings(
+            config, state_dir=state_dir, cache_dir=cache_dir
+        )
+        if settings.state_dir is None:
+            if settings.cache_dir is not None:
+                raise ConfigError("partial snapshot configuration")
+        else:
+            try:
+                topic_snapshot.read_snapshot_state(settings.state_dir)
+            except topic_snapshot.SnapshotNotFound:
+                if settings.cache_dir is not None:
+                    _require_existing_directory(settings.cache_dir)
+            else:
+                if settings.cache_dir is None:
+                    raise ConfigError("active snapshot cache is not configured")
+                loaded = topic_snapshot.load_active_snapshot(
+                    settings.state_dir, cache_dir=settings.cache_dir
+                )
+        run_topic_stdio(TopicQueryService(loaded))
+    except BaseException:
+        failed = True
+        print("serve startup failed", file=sys.stderr)
+    finally:
+        if loaded is not None:
+            try:
+                loaded.close()
+            except BaseException:
+                failed = True
+                print("serve startup failed", file=sys.stderr)
+    return 1 if failed else 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -416,6 +489,12 @@ def main(argv: Sequence[str] | None = None) -> int:
             state_dir=args.state_dir,
             cache_dir=args.cache_dir,
             as_json=args.json,
+        )
+    if args.command == "serve":
+        return _run_serve(
+            config=args.config,
+            state_dir=args.state_dir,
+            cache_dir=args.cache_dir,
         )
     parser.print_help()
     return 0

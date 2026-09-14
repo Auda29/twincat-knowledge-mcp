@@ -3,9 +3,11 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import queue
 import shutil
 import subprocess
 import sys
+import threading
 import tomllib
 from pathlib import Path
 
@@ -40,7 +42,12 @@ def _console_command(python: Path, script: Path) -> list[Path]:
 
 
 def _run(
-    args: list[str | Path], *, cwd: Path, env: dict[str, str], timeout: float
+    args: list[str | Path],
+    *,
+    cwd: Path,
+    env: dict[str, str],
+    timeout: float,
+    input_text: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     try:
         return subprocess.run(
@@ -49,11 +56,84 @@ def _run(
             env=env,
             capture_output=True,
             text=True,
+            input=input_text,
             check=False,
             timeout=timeout,
         )
     except subprocess.TimeoutExpired as exc:
         pytest.fail(f"subprocess timed out after {timeout:g}s: {args}: {exc}")
+
+
+class _InstalledServePipe:
+    def __init__(
+        self, command: list[str | Path], *, cwd: Path, env: dict[str, str]
+    ) -> None:
+        self.process = subprocess.Popen(
+            [str(arg) for arg in command],
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        assert self.process.stdin is not None
+        assert self.process.stdout is not None
+        self._lines: queue.Queue[str | None] = queue.Queue(maxsize=16)
+        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader.start()
+
+    def _read(self) -> None:
+        assert self.process.stdout is not None
+        for line in self.process.stdout:
+            self._lines.put(line)
+        self._lines.put(None)
+
+    def send(self, request: dict[str, object]) -> dict[str, object]:
+        assert self.process.stdin is not None
+        self.process.stdin.write(json.dumps(request) + "\n")
+        self.process.stdin.flush()
+        line = self._lines.get(timeout=30)
+        assert line is not None
+        return json.loads(line)
+
+    def close(self, *, timeout: float = 30.0) -> str:
+        assert self.process.stdin is not None
+        try:
+            self.process.stdin.close()
+        except OSError:
+            pass
+        try:
+            self.process.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=timeout)
+        self._reader.join(timeout=timeout)
+        if self._reader.is_alive():
+            raise RuntimeError("installed stdio reader did not reach EOF")
+        assert self.process.stderr is not None
+        stderr = self.process.stderr.read()
+        assert self.process.returncode == 0, stderr
+        return stderr
+
+
+def _wire_request(request_id: int, method: str, **params: object) -> dict[str, object]:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
+        "params": {
+            "_meta": {
+                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                "io.modelcontextprotocol/clientInfo": {
+                    "name": "installed-lifecycle",
+                    "version": "1",
+                },
+                "io.modelcontextprotocol/clientCapabilities": {},
+            },
+            **params,
+        },
+    }
 
 
 @pytest.mark.parametrize(
@@ -150,6 +230,64 @@ def test_wheel_installs_without_source_checkout(
     assert version.returncode == 0, version.stderr
     assert version.stdout.strip() == "twincat-knowledge 0.1.0"
     assert version.stderr == ""
+
+    protocol_meta = {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {"name": "installed", "version": "1"},
+        "io.modelcontextprotocol/clientCapabilities": {},
+    }
+    serve_env = env.copy()
+    serve_env.pop("TCK_STATE_DIR", None)
+    serve_env.pop("TCK_CACHE_DIR", None)
+
+    def serve_request(request_id: int, method: str, **params: object) -> str:
+        request = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "method": method,
+            "params": {"_meta": protocol_meta, **params},
+        }
+        return json.dumps(request) + "\n"
+
+    discovery = _run(
+        [*_console_command(python, console_script), "serve", "--transport", "stdio"],
+        cwd=foreign_cwd,
+        env=serve_env,
+        timeout=30,
+        input_text=serve_request(1, "server/discover"),
+    )
+    listing = _run(
+        [*_console_command(python, console_script), "serve"],
+        cwd=foreign_cwd,
+        env=serve_env,
+        timeout=30,
+        input_text=serve_request(2, "tools/list"),
+    )
+    direct_call = _run(
+        [*_console_command(python, console_script), "serve"],
+        cwd=foreign_cwd,
+        env=serve_env,
+        timeout=30,
+        input_text=serve_request(
+            3,
+            "tools/call",
+            name="tc_get_corpus_status",
+            arguments={},
+        ),
+    )
+    assert all(result.returncode == 0 for result in (discovery, listing, direct_call))
+    assert all(result.stderr == "" for result in (discovery, listing, direct_call))
+    assert json.loads(discovery.stdout)["id"] == 1
+    listed_tools = json.loads(listing.stdout)["result"]["tools"]
+    assert [tool["name"] for tool in listed_tools] == [
+        "tc_get_corpus_status",
+        "tc_get_topic",
+        "tc_search",
+    ]
+    assert (
+        json.loads(direct_call.stdout)["result"]["structuredContent"]["status"]
+        == "not_available"
+    )
 
     # Exercise the new reader through the installed console entry point, not checkout.
     from zipfile import ZipFile
@@ -308,6 +446,10 @@ def test_wheel_installs_without_source_checkout(
             "snapshots.activate_snapshot(state, built.path, "
             "expected_manifest_sha256=built.manifest_sha256, cache_dir=cache); "
             "held = snapshots.load_active_snapshot(state, cache_dir=cache); "
+            "held_service = queries.TopicQueryService(held); "
+            "held_result = held_service.search("
+            "contracts.SearchInput(query='Synthetic')); "
+            "assert held_result.snapshot_ids == ('package-generation',); "
             "snapshot_b = snapshot.model_copy(update={'snapshot_id': 'v2'}); "
             "raw_b = read_infosys(p, source_id='fixture', snapshot_id='v2'); "
             "topics_b = module.normalize_infosys(raw_b, (snapshot_b,)); "
@@ -318,6 +460,13 @@ def test_wheel_installs_without_source_checkout(
             "snapshots.activate_snapshot(state, built_b.path, "
             "expected_manifest_sha256=built_b.manifest_sha256, cache_dir=cache); "
             "current = snapshots.load_active_snapshot(state, cache_dir=cache); "
+            "current_result = queries.TopicQueryService(current).search("
+            "contracts.SearchInput(query='Synthetic')); "
+            "assert current_result.status == 'ok'; "
+            "assert current_result.snapshot_ids == ('package-next',); "
+            "assert current_result.data.items[0].id == topics_b[0].id; "
+            "assert held_service.search(contracts.SearchInput(query='Synthetic')) "
+            "== held_result; "
             "assert current.index.get_topic(topics_b[0].id) == topics_b[0]; "
             "assert current.index.get_topic(t.id) is None; "
             "assert held.index.get_topic(t.id) == t; "
@@ -325,6 +474,9 @@ def test_wheel_installs_without_source_checkout(
             "current.close(); "
             "snapshots.rollback_snapshot(state, cache_dir=cache); "
             "restored = snapshots.load_active_snapshot(state, cache_dir=cache); "
+            "restored_result = queries.TopicQueryService(restored).search("
+            "contracts.SearchInput(query='Synthetic')); "
+            "assert restored_result == held_result; "
             "assert restored.index.get_topic(t.id) == t; restored.close(); "
             "held.close(); assert list(cache.iterdir()) == []; "
             "assert snapshots.read_snapshot_state(state).active.manifest_sha256 "
@@ -359,6 +511,181 @@ def test_wheel_installs_without_source_checkout(
     cache = operator_dir / "installed-package-cache"
     before = {p.name: p.read_bytes() for p in package.iterdir()}
     fingerprint = hashlib.sha256(before["manifest.json"]).hexdigest()
+    package_b = operator_dir / "installed-package-next"
+    before_b = {p.name: p.read_bytes() for p in package_b.iterdir()}
+    fingerprint_b = hashlib.sha256(before_b["manifest.json"]).hexdigest()
+    topic_a = json.loads(
+        (package / "topics.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
+    topic_b = json.loads(
+        (package_b / "topics.jsonl").read_text(encoding="utf-8").splitlines()[0]
+    )
+    lifecycle_state = operator_dir / "serving-state"
+    lifecycle_cache = operator_dir / "serving-cache"
+    lifecycle_state.mkdir()
+    lifecycle_cache.mkdir()
+    lifecycle_env = env.copy()
+    activate_lifecycle = [
+        *_console_command(python, console_script),
+        "corpus",
+        "activate",
+        package,
+        "--expected-manifest-sha256",
+        fingerprint,
+        "--state-dir",
+        lifecycle_state,
+        "--cache-dir",
+        lifecycle_cache,
+        "--json",
+    ]
+    selected_lifecycle = _run(
+        activate_lifecycle, cwd=foreign_cwd, env=lifecycle_env, timeout=30
+    )
+    assert selected_lifecycle.returncode == 0, selected_lifecycle.stderr
+    assert (
+        json.loads(selected_lifecycle.stdout)["active"]["manifest_sha256"]
+        == fingerprint
+    )
+    source_bytes_before_lifecycle = {
+        package: {path.name: path.read_bytes() for path in package.iterdir()}
+        for package in (package, package_b)
+    }
+    serve_command = [
+        *_console_command(python, console_script),
+        "serve",
+        "--transport",
+        "stdio",
+        "--state-dir",
+        lifecycle_state,
+        "--cache-dir",
+        lifecycle_cache,
+    ]
+    server_a = _InstalledServePipe(serve_command, cwd=foreign_cwd, env=lifecycle_env)
+    server_b = None
+    server_restored = None
+    try:
+        search_a = server_a.send(
+            _wire_request(
+                1,
+                "tools/call",
+                name="tc_search",
+                arguments={"query": topic_a["title"]},
+            )
+        )
+        search_a_data = search_a["result"]["structuredContent"]
+        assert search_a_data["status"] == "ok"
+        assert search_a_data["data"]["items"][0]["id"] == topic_a["id"]
+        get_a = server_a.send(
+            _wire_request(
+                2,
+                "tools/call",
+                name="tc_get_topic",
+                arguments={"topic_id": topic_a["id"]},
+            )
+        )
+        get_a_data = get_a["result"]["structuredContent"]
+        assert get_a_data["status"] == "ok"
+        assert get_a_data["data"]["topic_id"] == topic_a["id"]
+        assert get_a_data["data"]["sections"]
+        assert any(
+            section.get("text") or section.get("code")
+            for section in get_a_data["data"]["sections"]
+        )
+
+        activate_b = activate_lifecycle.copy()
+        activate_b[activate_b.index(package)] = package_b
+        activate_b[activate_b.index(fingerprint)] = fingerprint_b
+        selected_b_lifecycle = _run(
+            activate_b, cwd=foreign_cwd, env=lifecycle_env, timeout=30
+        )
+        assert selected_b_lifecycle.returncode == 0, selected_b_lifecycle.stderr
+        assert (
+            json.loads(selected_b_lifecycle.stdout)["active"]["manifest_sha256"]
+            == fingerprint_b
+        )
+        held_a = server_a.send(
+            _wire_request(
+                3,
+                "tools/call",
+                name="tc_search",
+                arguments={"query": topic_a["title"]},
+            )
+        )
+        assert (
+            held_a["result"]["structuredContent"]["data"]["items"][0]["id"]
+            == topic_a["id"]
+        )
+        assert server_a.close() == ""
+        server_a = None
+
+        server_b = _InstalledServePipe(
+            serve_command, cwd=foreign_cwd, env=lifecycle_env
+        )
+        search_b = server_b.send(
+            _wire_request(
+                4,
+                "tools/call",
+                name="tc_search",
+                arguments={"query": topic_b["title"]},
+            )
+        )
+        assert (
+            search_b["result"]["structuredContent"]["data"]["items"][0]["id"]
+            == topic_b["id"]
+        )
+        assert server_b.close() == ""
+        server_b = None
+
+        rollback_lifecycle = _run(
+            [
+                *_console_command(python, console_script),
+                "corpus",
+                "rollback",
+                "--state-dir",
+                lifecycle_state,
+                "--cache-dir",
+                lifecycle_cache,
+                "--json",
+            ],
+            cwd=foreign_cwd,
+            env=lifecycle_env,
+            timeout=30,
+        )
+        assert rollback_lifecycle.returncode == 0, rollback_lifecycle.stderr
+        assert (
+            json.loads(rollback_lifecycle.stdout)["active"]["manifest_sha256"]
+            == fingerprint
+        )
+
+        server_restored = _InstalledServePipe(
+            serve_command, cwd=foreign_cwd, env=lifecycle_env
+        )
+        restored_a = server_restored.send(
+            _wire_request(
+                5,
+                "tools/call",
+                name="tc_search",
+                arguments={"query": topic_a["title"]},
+            )
+        )
+        assert (
+            restored_a["result"]["structuredContent"]["data"]["items"][0]["id"]
+            == topic_a["id"]
+        )
+    finally:
+        if server_a is not None:
+            server_a.close()
+        if server_b is not None:
+            server_b.close()
+        if server_restored is not None:
+            server_restored.close()
+    assert list(lifecycle_cache.iterdir()) == []
+    assert sorted(path.name for path in lifecycle_state.iterdir()) == ["active.json"]
+    assert {
+        package: {path.name: path.read_bytes() for path in package.iterdir()}
+        for package in (package, package_b)
+    } == source_bytes_before_lifecycle
+
     validation_command = [
         *_console_command(python, console_script),
         "corpus",
