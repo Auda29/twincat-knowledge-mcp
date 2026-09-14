@@ -1,5 +1,11 @@
 # Umsetzungsziel: TwinCAT Knowledge MCP mit Agent-Swarm
 
+> **Aktuelle Merge-Regel (14.09.2026):** [MERGE_POLICY.md](MERGE_POLICY.md)
+> ersetzt die frühere Upload-Pflicht für Entwicklungs-PRs. Code-, Build-,
+> Installationsprüfungen und unabhängige Review bleiben verpflichtend.
+> Alte Quoten-/Auslieferungsbefunde sind historische Nachweise, keine aktuellen
+> Merge-Voraussetzungen. Produkt-/Release-Abnahme und Feature-Pause bleiben erhalten.
+
 ## Status
 
 **Feature-Umsetzung pausiert bis auf Browse-Service-Abnahme.** Aktuell gilt der begrenzte Konsolidierungsauftrag in [CONSOLIDATION.md](CONSOLIDATION.md); der belegte Stand steht in [STATUS.md](STATUS.md). Nach der Browse-Abnahme nicht automatisch mit neuen Features fortfahren. Die folgenden Produktanforderungen und Abnahmegrenzen bleiben unverändert verbindlich.
