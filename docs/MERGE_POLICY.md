@@ -72,10 +72,16 @@ keine offenen Folge-PRs mehr darauf zielen. Keine PR nur zur Zählerbereinigung
 schließen. Keine unabhängige Review oder vollständige Produktabnahme durch
 bloßes Bestehen dieser Policy-Tests behaupten.
 
-## Umfang dieses Auftrags
+## Umfang des aktuellen Integrationsauftrags
 
-CI-Entkopplung und Festlegung der Reihenfolge; keine automatische Durchführung
-aller Feature-Merges, kein Wiederanlauf des pausierten Feature-Goals. Historische
-Review-SHAs beziehen sich auf den alten Stand. Nach dem Policy-Commit bleibt die
-Produktcode-Identität prüfbar; neue CI und Prüfung des CI-/Dokumentationsdeltas
-sind vor einem Merge erforderlich.
+Die anschließende ausdrückliche Nutzerfreigabe umfasst die Integration der
+vorhandenen PRs #3–#18 sowie die nachweisgebundene Bereinigung erledigter
+Remote-Branches. Keine neue Featureentwicklung und kein Release. Historische
+Review-SHAs bleiben an ihre damaligen Stände gebunden; ergänzende unabhängige
+Policy-/Integrationsreviews und frische CI sind vor jedem Merge erforderlich.
+
+Die bereits bekannte Parent-/Child-Testkorrektur aus der Konsolidierung wird bei
+#17 vorgezogen, damit kein nachweislich roter Zwischenstand nach `main` gelangt.
+Es ändern sich nur die vorhandenen Fixture-Erwartungen; der restliche
+Konsolidierungsumfang bleibt ein eigener kleiner PR. Branchlöschungen folgen
+erst nach #18 und erfolgreicher Abschlussprüfung des tatsächlichen `main`.
