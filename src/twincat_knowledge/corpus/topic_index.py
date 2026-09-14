@@ -313,6 +313,66 @@ class TopicIndex:
         )
         return None if row is None else Topic.model_validate_json(row[0])
 
+    def validate_topic_contents(self, topics: tuple[Topic, ...]) -> None:
+        """Cross-check caller-validated topics, filters and canonical FTS rows.
+
+        Scan FTS rows once rather than doing an unindexed lookup per topic.
+        This validates logical rows, not SQLite's private FTS shadow encoding.
+        """
+        connection = self._connection_or_raise()
+        if not isinstance(topics, tuple) or len(topics) > MAX_TOPICS:
+            raise TopicIndexValidationError("invalid expected topic collection")
+        expected: dict[str, Topic] = {}
+        for topic in topics:
+            if not isinstance(topic, Topic) or topic.id in expected:
+                raise TopicIndexValidationError("invalid expected topic collection")
+            expected[topic.id] = topic
+        try:
+            for table in ("topics", "search_text"):
+                count = connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[
+                    0
+                ]
+                if count != len(expected):
+                    raise TopicIndexValidationError("index topic count mismatch")
+            for topic in topics:
+                filters = connection.execute(
+                    "SELECT language, library, source_snapshot_id FROM topics "
+                    "WHERE id = ? AND length(CAST(language AS BLOB)) <= ? "
+                    "AND length(CAST(library AS BLOB)) <= ? "
+                    "AND length(CAST(source_snapshot_id AS BLOB)) <= ? "
+                    "AND length(CAST(payload AS BLOB)) <= ?",
+                    (
+                        topic.id,
+                        MAX_QUERY_BYTES,
+                        MAX_QUERY_BYTES,
+                        MAX_QUERY_BYTES,
+                        MAX_TOPIC_JSON_BYTES,
+                    ),
+                ).fetchone()
+                if filters != (topic.language, topic.library, topic.source.snapshot_id):
+                    raise TopicIndexValidationError("index filter fields mismatch")
+                if self.get_topic(topic.id) != topic:
+                    raise TopicIndexValidationError("index topic payload mismatch")
+            rows = connection.execute(
+                "SELECT CASE WHEN length(CAST(id AS BLOB)) <= 256 THEN id END, "
+                "CASE WHEN length(CAST(body AS BLOB)) <= ? THEN body END "
+                "FROM search_text",
+                (MAX_SEARCH_TEXT_BYTES,),
+            )
+            try:
+                for topic_id, body in rows:
+                    matched = expected.pop(topic_id, None)
+                    if matched is None or body != _search_text(matched):
+                        raise TopicIndexValidationError("index search rows mismatch")
+            finally:
+                # An early rejection leaves a live statement in the traceback.
+                # Finalize it before connection close and Windows cache removal.
+                rows.close()
+            if expected:
+                raise TopicIndexValidationError("index search rows missing")
+        except (sqlite3.Error, UnicodeError) as exc:
+            raise TopicIndexValidationError("index contents are invalid") from exc
+
     def search(
         self,
         query: str,
