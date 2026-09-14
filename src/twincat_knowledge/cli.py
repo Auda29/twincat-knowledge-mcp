@@ -13,11 +13,14 @@ from uuid import uuid4
 
 from . import __version__
 from .config import (
+    ConfigError,
     ConfigFileExistsError,
     create_default_config,
     diagnose_config,
+    load_snapshot_settings,
     render_diagnosis,
 )
+from .corpus.topic_snapshot import SnapshotReference, SnapshotState
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -62,6 +65,19 @@ def build_parser() -> argparse.ArgumentParser:
     validate_parser.add_argument("--expected-manifest-sha256", required=True)
     validate_parser.add_argument("--cache-dir", required=True, type=Path)
     validate_parser.add_argument("--json", action="store_true")
+    for name, help_text in (
+        ("activate", "verify and select a topic package snapshot"),
+        ("rollback", "restore the stored previous topic package snapshot"),
+        ("list", "show the selected snapshot state without package scanning"),
+    ):
+        snapshot_parser = corpus_commands.add_parser(name, help=help_text)
+        if name == "activate":
+            snapshot_parser.add_argument("package_dir", type=Path)
+            snapshot_parser.add_argument("--expected-manifest-sha256", required=True)
+        snapshot_parser.add_argument("--config", type=Path)
+        snapshot_parser.add_argument("--state-dir", type=Path)
+        snapshot_parser.add_argument("--cache-dir", type=Path)
+        snapshot_parser.add_argument("--json", action="store_true")
     return parser
 
 
@@ -202,6 +218,175 @@ def _run_corpus_validate(
     return 0
 
 
+_SNAPSHOT_ERROR = (
+    "Snapshot operation failed; re-read state before retrying because the "
+    "outcome may be ambiguous."
+)
+
+
+def _snapshot_reference_report(
+    reference: SnapshotReference | None,
+) -> dict[str, str] | None:
+    if reference is None:
+        return None
+    # SnapshotReference is deliberately converted to an allow-listed shape;
+    # package_path, rights metadata, and other operator details never escape.
+    return {
+        "snapshot_id": reference.snapshot_id,
+        "manifest_sha256": reference.manifest_sha256,
+        "availability": "state_only_unverified",
+    }
+
+
+def _snapshot_report(
+    state: SnapshotState, *, operation: str, status: str = "ok"
+) -> dict[str, object]:
+    return {
+        "schema_version": "snapshot-operation-1",
+        "status": status,
+        "scope": "selected_snapshot_state",
+        "operation": operation,
+        "format_version": state.format_version,
+        "active": _snapshot_reference_report(state.active),
+        "previous": _snapshot_reference_report(state.previous),
+        "limitations": [
+            "State references are selected metadata; package availability is "
+            "unverified.",
+            "This does not prove source authenticity, rights, or product readiness.",
+        ],
+    }
+
+
+def _print_snapshot_error(*, as_json: bool, message: str = _SNAPSHOT_ERROR) -> int:
+    if as_json:
+        print(
+            json.dumps(
+                {
+                    "schema_version": "snapshot-operation-1",
+                    "status": "error",
+                    "scope": "selected_snapshot_state",
+                    "message": message,
+                },
+                ensure_ascii=True,
+            )
+        )
+    else:
+        print(message, file=sys.stderr)
+    return 1
+
+
+def _print_snapshot_report(report: dict[str, object], *, as_json: bool) -> None:
+    if as_json:
+        print(json.dumps(report, ensure_ascii=True, sort_keys=True))
+        return
+    print(f"Snapshot state: {report['status']}")
+    if "operation" in report:
+        print(f"Operation: {report['operation']}")
+    print(f"Scope: {report['scope']}")
+    for label, reference in (
+        ("active", report.get("active")),
+        ("previous", report.get("previous")),
+    ):
+        if reference is None:
+            print(f"{label}: none")
+        else:
+            if isinstance(reference, dict):
+                print(
+                    f"{label}: {reference['snapshot_id']} "
+                    f"(manifest {reference['manifest_sha256']}; state-only/unverified)"
+                )
+    limitations = report.get("limitations", ())
+    if isinstance(limitations, list):
+        for limitation in limitations:
+            print(f"limitation: {limitation}")
+
+
+def _run_snapshot_mutation(
+    *,
+    operation: str,
+    config: Path | None,
+    state_dir: Path | None,
+    cache_dir: Path | None,
+    package: Path | None = None,
+    fingerprint: str | None = None,
+    as_json: bool,
+) -> int:
+    from .corpus import topic_snapshot
+
+    try:
+        settings = load_snapshot_settings(
+            config,
+            state_dir=state_dir,
+            cache_dir=cache_dir,
+            require_cache=True,
+        )
+        if settings.cache_dir is None:
+            raise ConfigError("snapshot paths are not configured")
+        if operation == "activate":
+            if package is None or fingerprint is None:
+                raise ConfigError("snapshot arguments are incomplete")
+            returned = topic_snapshot.activate_snapshot(
+                settings.state_dir,
+                package,
+                expected_manifest_sha256=fingerprint,
+                cache_dir=settings.cache_dir,
+            )
+        else:
+            returned = topic_snapshot.rollback_snapshot(
+                settings.state_dir, cache_dir=settings.cache_dir
+            )
+        # A successful pointer call is not an acknowledgement until the exact
+        # state is read back.  Never emit a success report before this check.
+        readback = topic_snapshot.read_snapshot_state(settings.state_dir)
+        if readback != returned:
+            return _print_snapshot_error(as_json=as_json)
+        _print_snapshot_report(
+            _snapshot_report(readback, operation=operation), as_json=as_json
+        )
+        return 0
+    except Exception:
+        return _print_snapshot_error(as_json=as_json)
+
+
+def _run_snapshot_list(
+    *,
+    config: Path | None,
+    state_dir: Path | None,
+    cache_dir: Path | None,
+    as_json: bool,
+) -> int:
+    del cache_dir  # Listing is state-only and must not touch the cache.
+    from .corpus import topic_snapshot
+
+    try:
+        settings = load_snapshot_settings(
+            config, state_dir=state_dir, cache_dir=None, require_cache=False
+        )
+        try:
+            state = topic_snapshot.read_snapshot_state(settings.state_dir)
+        except topic_snapshot.SnapshotNotFound:
+            report: dict[str, object] = {
+                "schema_version": "snapshot-list-1",
+                "status": "not_available",
+                "scope": "selected_snapshot_state",
+                "active": None,
+                "previous": None,
+                "limitations": [
+                    "No active selection is recorded in the selected state directory.",
+                    "This command does not scan packages or claim full readiness.",
+                ],
+            }
+        else:
+            report = _snapshot_report(state, operation="list", status="not_ready")
+            report["schema_version"] = "snapshot-list-1"
+        _print_snapshot_report(report, as_json=as_json)
+        return 0
+    except Exception:
+        return _print_snapshot_error(
+            as_json=as_json, message="Snapshot state could not be read."
+        )
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -214,6 +399,23 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "corpus" and args.corpus_command == "validate":
         return _run_corpus_validate(
             args.package_dir, args.expected_manifest_sha256, args.cache_dir, args.json
+        )
+    if args.command == "corpus" and args.corpus_command in {"activate", "rollback"}:
+        return _run_snapshot_mutation(
+            operation=args.corpus_command,
+            config=args.config,
+            state_dir=args.state_dir,
+            cache_dir=args.cache_dir,
+            package=getattr(args, "package_dir", None),
+            fingerprint=getattr(args, "expected_manifest_sha256", None),
+            as_json=args.json,
+        )
+    if args.command == "corpus" and args.corpus_command == "list":
+        return _run_snapshot_list(
+            config=args.config,
+            state_dir=args.state_dir,
+            cache_dir=args.cache_dir,
+            as_json=args.json,
         )
     parser.print_help()
     return 0
