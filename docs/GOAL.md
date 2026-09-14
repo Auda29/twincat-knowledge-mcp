@@ -8,7 +8,16 @@
 
 ## Status
 
-**Feature-Umsetzung pausiert bis auf Browse-Service-Abnahme.** Aktuell gilt der begrenzte Konsolidierungsauftrag in [CONSOLIDATION.md](CONSOLIDATION.md); der belegte Stand steht in [STATUS.md](STATUS.md). Nach der Browse-Abnahme nicht automatisch mit neuen Features fortfahren. Die folgenden Produktanforderungen und Abnahmegrenzen bleiben unverändert verbindlich.
+**Aktiver Auftrag: vorhandene Arbeit integrieren, danach erledigte Branches bereinigen.**
+Der Nutzer hat die abhängigkeitsgeordneten Main-Merges der PRs #3–#18 ausdrücklich
+freigegeben. Es gelten [MERGE_POLICY.md](MERGE_POLICY.md), unabhängige Reviewbindung,
+frische native CI, abschließende Main-Verifikation und exakte Löschlisten.
+Neue Featurearbeit und Releases sind nicht freigegeben. Der aktuelle Checkpoint
+steht in [STATUS.md](STATUS.md). Die nachfolgenden Produktanforderungen und
+Abnahmegrenzen bleiben offen, soweit sie nicht separat nachgewiesen wurden.
+
+Die folgenden Outcome-/Browse-Aktivierungsabschnitte dokumentieren den früheren
+Featureauftrag; sie dürfen im Integrationsmodus nicht automatisch gestartet werden.
 
 Vom Nutzer beauftragtes Umsetzungsziel. Dieser Vertrag ist im Repository hinterlegt; allein das Schreiben dieser Datei aktiviert keinen nativen Hermes-Goal-Loop. Der Loop und die Subagent-Modellkonfiguration müssen in der ausführenden Hermes-Session aktiviert und geprüft werden.
 
@@ -16,9 +25,9 @@ Vom Nutzer beauftragtes Umsetzungsziel. Dieser Vertrag ist im Repository hinterl
 
 Den vollständigen Plan `docs/PLAN.md` in `Auda29/twincat-knowledge-mcp` inkrementell mit einem koordinierten Agent-Swarm umsetzen: installierbarer, projektunabhängiger Beckhoff-/TwinCAT-Knowledge-MCP nach `2026-07-28` mit den 15 festgelegten Read-only-Tools. Die Definition of Done in Abschnitt 15 des Plans ist verbindlich.
 
-**Aktueller Fokus:** Den vorhandenen Domain-Browse-Service `TopicQueryService.browse_topics` auf `swarm/topic-browse-service` fertigstellen: zwei Medium-Reviewbefunde schließen, dauerhafte Regressionen ergänzen und unabhängig am exakten gemeinsamen Stand prüfen. Zunächst keine neue MCP-Anbindung: `tc_browse_topics` ist ein geplantes Tool, kein bereits exponiertes Werkzeug. Die bestehenden drei MCP-Tools und ihre installierten stdio-/Snapshot-Lifecycle-Tests bleiben erhalten.
+**Abgeschlossener Implementierungsumfang (Auslieferung bleibt blockiert):** Den vorhandenen Domain-Browse-Service `TopicQueryService.browse_topics` auf `swarm/topic-browse-service` fertigstellen: zwei Medium-Reviewbefunde schließen, dauerhafte Regressionen ergänzen und unabhängig am exakten gemeinsamen Stand prüfen. Zunächst keine neue MCP-Anbindung: `tc_browse_topics` ist ein geplantes Tool, kein bereits exponiertes Werkzeug. Die bestehenden drei MCP-Tools und ihre installierten stdio-/Snapshot-Lifecycle-Tests bleiben erhalten.
 
-Abnahme dieser Etappe: Python 3.12.10/3.13.12, Ruff check/format, `mypy src`, Wheel/sdist aus fremdem CWD, Windows/Linux und unabhängige Review auf der konsolidierten Basis. Erforderliche CI einschließlich Artefaktupload bleibt Merge-Gate; ein externer Quotenblocker verhindert nicht diese lokale Arbeit, aber vollständige Auslieferungsabnahme und Main-Merge. Anschließend stoppen; weder HTTP noch andere Features automatisch beginnen, auch nicht nach Quotenfreigabe.
+Abnahme dieser Etappe: Python 3.12.10/3.13.12, Ruff check/format, `mypy src`, Wheel/sdist aus fremdem CWD, Windows/Linux und unabhängige Review auf der konsolidierten Basis. Für Entwicklungsmerges gilt die aktuelle `MERGE_POLICY.md`: sämtliche Code-, Test-, Installations- und Buildprüfungen sind Pflicht, die Paketablage nicht. Nur eine ausdrücklich angeforderte Auslieferung erfordert zusätzlich erfolgreichen Upload/Download und Prüfsummenprüfung. Nach der freigegebenen Integration und Bereinigung stoppen; weder HTTP noch andere Features automatisch beginnen, auch nicht nach Quotenfreigabe.
 
 ## Verifikation
 

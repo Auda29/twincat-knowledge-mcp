@@ -1,17 +1,74 @@
-# Projektstatus — konsolidierte Basis und begrenzte Browse-Fortsetzung
+# Projektstatus — integrierter Entwicklungsstand einschließlich Domain-Browse
+
+## Aktueller Auftrag vom 14. September 2026
+
+Die vorhandenen PRs #3–#18 werden abhängigkeitsgeordnet nach `main` integriert;
+anschließend werden nur nachweislich integrierte Remote-Branches entfernt.
+Keine neue Produktentwicklung und kein Release. [MERGE_POLICY.md](MERGE_POLICY.md)
+ist maßgeblich; normale Entwicklungs-CI benötigt keinen Artefaktupload.
+
+Dieser Dateistand vereinigt die vorhandenen Komponenten #3–#18 einschließlich
+der gemeinsamen Snapshot-/stdio-/Hierarchie-Tests und des Domain-Browse-Service.
+Browse ist ausschließlich eine Domain-Funktion, keine zusätzliche MCP-Anbindung.
+Die ursprünglichen Produktänderungen bleiben erhalten; neue Features wurden
+nicht ergänzt. Ein Dateistand allein beweist keinen Remote-Merge: tatsächliche
+Merge-SHAs, native CI-Nachweise und der Abschluss der Branchbereinigung stehen
+in den GitHub-PRs und ihren Integrations-/Abschlusskommentaren.
+
+### Prüf- und Integrationsnachweise
+
+- Unabhängige GPT-Luna-Review der CI-Policy: PASS für #3–#18; Produktcode unverändert.
+- Die historischen Reviewlücken der installierten Test-Addenda #7 und #10 sind
+  unabhängig am jeweiligen Policy-Head geschlossen (Wheel und sdist je bestanden).
+- Kombinierte Kandidaten #11/#13/#14: unabhängig geprüft, 281/330/346 Tests auf
+  Linux 3.12.10 bestanden. #16: 403 Tests bestanden.
+- Der rohe #17-Integrationskandidat zeigte zwei echte installierte Testfehler.
+  Die bereits vorhandene Konsolidierungskorrektur richtet neun Testzeilen an der
+  Parent-/Child-Fixture aus. Keine Assertions entfernt, kein Produktcode geändert.
+  Korrigierter Tree `16e7cf5faa4d96729e28ef2f3c6ac92d0ea29ee9`:
+  unabhängig 422 Tests auf Linux 3.12.10; Koordinator 422 auf 3.12.10 und 3.13.12.
+- Der verbleibende Konsolidierungs-PR übernimmt nur Dokumentation und die bereits
+  vorhandenen exakten Python-Pins 3.12.10/3.13.12, keinen weiteren Produktcode.
+- Browse-Integrationskandidat: Koordinator jeweils 436 Tests auf Linux 3.12.10
+  und 3.13.12 bestanden, einschließlich echter Wheel-/sdist-Installation und
+  stdio-/Snapshot-Lifecycle; Ruff, Format und mypy erfolgreich. `src`, `tests`,
+  Workflows und Lockfile sind identisch zum historischen Policy-Head
+  `6601a8e2cabd4aad5c55d8e86fc88e42c64cbc4b`. Nur Integrationsdokumentation änderte sich.
+  Die unabhängige Review und native CI am veröffentlichten Stand bleiben separate Gates.
+- Jeder tatsächliche Merge erfordert aktuelle native Windows-/Linux-CI und eine
+  verifizierte Bindung des veröffentlichten Trees an die unabhängige Review.
+  Lokale Testzahlen ersetzen diese Remote-Prüfung nicht.
+
+Nach #18 sind das tatsächliche `main` und anschließend jede Branchlöschung
+zurückzuprüfen. Lokale Arbeitsverzeichnisse, ungesicherte Dateien und historische
+Archive werden nicht pauschal gelöscht. Explizite Paketbereitstellung bleibt ein
+separater Auftrag mit erfolgreichem Upload/Download und Prüfsummenprüfung.
+
+**Offen bleiben:** vollständiger Toolkatalog, `tc_browse_topics`-MCP-Anbindung,
+HTTP/Auth/Hosts, universelles Wirebudget, SDK-Supportability, reale zulässige
+InfoSys-/Hardwarequellen und Evaluation sowie Produkt-/Release-Abnahme.
+Exakt drei MCP-Tools bleiben exponiert: `tc_get_corpus_status`, `tc_get_topic`,
+`tc_search`.
+
+## Historisches Statusregister vom 11. September 2026
+
+Die folgenden Stände, Draft-/Branchangaben, Quotenblocker und Testzahlen sind
+historische Nachweise und **keine aktuellen Handlungsanweisungen oder Merge-Gates**.
+Sie bleiben zur Herkunfts- und Reviewnachverfolgung erhalten.
+
 
 > **Aktuelle Regel vom 14.09.2026:** [MERGE_POLICY.md](MERGE_POLICY.md)
 > ersetzt die nachfolgend historisch dokumentierte Upload-Pflicht. Für
 > Entwicklungsmerges bleiben Tests, Paketbau, Installation und Review Pflicht;
 > die Paketablage ist nur bei ausdrücklichem Auslieferungsauftrag erforderlich.
 
-Stand: 2026-09-11. Aktueller Auftrag: vorhandenen Domain-Browse-Service gemäß [GOAL.md](GOAL.md) fertigstellen und unabhängig auf der konsolidierten Basis prüfen. Die Grenzen aus [CONSOLIDATION.md](CONSOLIDATION.md) bleiben verbindlich. **Konsolidierung teilabgeschlossen; Browse-Abnahme offen; keine Produktabnahme, kein Release.**
+Stand: 2026-09-11. Aktueller Auftrag: vorhandenen Domain-Browse-Service gemäß [GOAL.md](GOAL.md) fertigstellen und unabhängig auf der konsolidierten Basis prüfen. Die Grenzen aus [CONSOLIDATION.md](CONSOLIDATION.md) bleiben verbindlich. **Browse-Code unabhängig abgenommen; Auslieferung/Main-Merge extern blockiert. Teilabschluss, keine Produktabnahme, kein Release. Autonome Arbeit beendet; keine weiteren Features.**
 
 ## Arbeitsstände
 
 - Remote `main`: `cb3d72f88e738719d566ea08e9dcbf71cd7e5b01` (Grundlagen + InfoSys-Diagnose). Keine Konsolidierungsänderungen auf main.
 - Gemeinsamer Code: Merge `ec9f267c8230408a209b2adae9490551523ab6be` auf `swarm/consolidation`. Eltern: CLI `024cba7216dc50d9a783e7302739c835f24f807d` und Graph `210630e3542adfa0bd742636ff368d71e10c09a8`. Alle 15 unten genannten PR-Spitzen sind nachweislich Vorfahren. Keine History-Umschreibung.
-- Browse: `swarm/topic-browse-service`, HEAD `db9d75967cc74cef85ededd58751cf4a015aaf07`, sieben uncommittierte Dateien; separat gesichert und NICHT in der gemeinsamen Basis.
+- Browse: `swarm/topic-browse-service`, finaler Code `03b86d7fd0d21c685b43d8f159122db9e96b1801`, sauber und remote veröffentlicht; [Draft-PR #18](https://github.com/Auda29/twincat-knowledge-mcp/pull/18) gegen `swarm/consolidation`. Normaler Merge `8a44426631d80c3badd43dea9989cbd68252fe54` enthält die gemeinsame Basis `f47e99afeb7031fcb36187321a5b2fc26169ab0e`; keine History-Umschreibung. Browse ist NICHT in `main` oder in `swarm/consolidation` gemergt.
 - Aktuell genau drei MCP-Tools: `tc_get_corpus_status`, `tc_get_topic`, `tc_search`. Kein angebundenes Browse-Tool.
 
 ## Gemeinsame Verifikation
@@ -53,7 +110,7 @@ Für jede Zeile gilt: **gemeinsame Entwicklungsbasis enthält den Stand; auf mai
 2. Danach #10, #11, #12 und #13 unter Beachtung ihrer Basen; #12 enthält auch die Betreiberintegration.
 3. #14 nach #13; #15 sowie #16 nach #14; #17 nach #16.
 4. Basen/CI nach jedem tatsächlichen Merge neu prüfen. Den konsolidierten Branch nicht als ungeprüften Sammel-PR auf main mergen.
-5. Alle 15 PRs bleiben offen: kein Scheinabschluss durch Schließen. Keine neue PR für den reinen Verifikationsbranch erforderlich.
+5. Die 15 ursprünglichen PRs bleiben offen: kein Scheinabschluss durch Schließen. Keine neue PR für den reinen Verifikationsbranch erforderlich. Zusätzlich dokumentiert Draft-PR #18 ausschließlich die abgeschlossene Domain-Browse-Arbeit gegen die konsolidierte Basis; er umgeht die ursprüngliche Merge-Reihenfolge nicht.
 
 ## Externer CI-/Auslieferungsblocker
 
@@ -64,11 +121,20 @@ Für jede Zeile gilt: **gemeinsame Entwicklungsbasis enthält den Stand; auf mai
 - Der Nutzer hat die Nulloy-Artefaktbereinigung an den zuständigen Projektagenten übergeben. Hier keine Änderungen an Nulloy, Konto-Budget oder fremden Artefakten. Eine Quotenfreigabe gilt erst nach erfolgreichem verpflichtendem Upload dieses Repositories als belegt.
 - Lokale Worktree-Bereinigung schafft KEINE GitHub-Artefaktquote. Keine Checks entfernt/übersprungen/ignoriert. Main-Merges bis grüne erforderliche CI blockiert.
 
-## Geparkter Browse-Zwischenstand
+## Browse-Etappe — Code abgenommen, Auslieferung blockiert
 
-- Review bei `db9d759`: zwei Medium-Befunde (fehlende Kennzeichnung unvollständiger Breadcrumbs; privater/eager Indexzugriff) und fehlende dauerhafte Regressionen.
-- Uncommittierte Korrekturen erhalten: Vollständigkeits-/Diagnosefelder und öffentliche begrenzte Indexiteration; nicht unabhängig abgenommen.
-- Worker-Checkpoint: 60 fokussierte Tests, zwei Installationstests und 343 Tests auf Python 3.12.10 bestanden; Ruff grün. `mypy src` scheitert an einem unbenötigten `type: ignore`. Python 3.13.12 und finale Review fehlen. Dieser historische Checkpoint ist keine Abnahme. Die begrenzte Wiederaufnahme ist autorisiert; vor Projektdelegation wird das leichte Worker-Modell erneut geprüft. Keine HTTP- oder sonstige Featurearbeit.
+| Baustein / PR | Exakter Stand | Abhängigkeit | Review | Tests | Integration / nächster Schritt |
+|---|---|---|---|---|---|
+| Domain-Browse / [#18](https://github.com/Auda29/twincat-knowledge-mcp/pull/18) | `03b86d7fd0d21c685b43d8f159122db9e96b1801` | Gemeinsame Basis `f47e99a`, insbesondere Graph #17, Query #13, CLI #15 | Unabhängig APPROVE, nur Domain-Komponente | Linux 425 / Windows 419 + 6 POSIX-Skips, jeweils 3.12.10/3.13.12 | Im Browse-Branch mit Basis integriert; Draft, nicht nach main. Nach Quotenfreigabe finale CI erneut prüfen; abhängige Basis und Reviewbindung vor Merge sicherstellen. |
+
+- Die beiden ursprünglichen Medium-Befunde sind geschlossen: unvollständige Breadcrumbs tragen Vollständigkeits-/Trunkierungsfelder und typisierte Diagnosen; der öffentliche begrenzte Indexiterator ersetzt privaten/eager SQL-Zugriff.
+- Die Integrationsreview auf `8a44426` fand einen weiteren Medium-Fehler: der Kontextmanager ersetzte vom Aufrufer geworfene SQLite-Fehler. Durch echten RED→GREEN-Identitätstest und Fix `03b86d7` behoben. Keine offenen blockierenden Codebefunde.
+- Unabhängige finale Folgeprüfung `twincat-browse-boundary-followup-review.md/.json`: APPROVE ausschließlich für Domain-Browse. Bestätigt Fehleridentität einschließlich Cancellation, interne SQLite-Übersetzung, Cleanup ohne Maskierung, Cursor-Schluss vor Verbindungsschluss sowie Grenzen/Sortierung. 66 fokussierte und 425 volle Tests auf 3.12.10; Wheel/sdist 2 Fälle; Ruff check/format und `mypy src` grün.
+- Implementierungsworker: 425 volle Tests je exakter Version; installierte Wheel-/sdist-/Foreign-CWD-/parallele stdio-Snapshot-Lifecycle-Tests bestanden. Koordinator am finalen Commit: 37 Browse-/Index-/installierte E2E-Tests auf 3.13.12 bestanden.
+- Finale native [Foundation CI 34640796960](https://github.com/Auda29/twincat-knowledge-mcp/actions/runs/34640796960) auf exakt `03b86d7`: Linux 425, Windows 419 + 6 unveränderte POSIX-Ausnahmen, je 3.12.10/3.13.12. Ruff, mypy, Tests, Build und SHA-Erzeugung erfolgreich. **Alle vier Jobs scheitern nur am verpflichtenden Upload: `Artifact storage quota has been hit`. Keine ausgelieferten CI-Artefakte, CI insgesamt rot.**
+- [InfoSys probe CI 34640796872](https://github.com/Auda29/twincat-knowledge-mcp/actions/runs/34640796872) auf demselben Commit erfolgreich; kein realer InfoSys-Importnachweis. Keine Gates deaktiviert.
+- Genau drei bestehende MCP-Tools bleiben registriert. `tc_browse_topics` ist noch nicht angebunden; kein HTTP-/Feature-Ausbau. Die begrenzte Arbeit ist beendet, es läuft kein Worker mehr.
+- Historischer sieben-Dateien-WIP und ursprüngliche Reviews bleiben im Konsolidierungsbackup erhalten. Neue Abschlussnachweise liegen im Evidence-Verzeichnis (`twincat-browse-*-review.*`, `twincat-browse-final-ci.json`, `twincat-browse-ci-evidence.json`).
 
 ## Sicherung und lokale Bereinigung
 
