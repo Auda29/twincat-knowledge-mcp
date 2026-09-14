@@ -2,8 +2,10 @@
 
 ## Aktueller Auftrag vom 14. September 2026
 
-Die vorhandenen PRs #3–#18 werden abhängigkeitsgeordnet nach `main` integriert;
-anschließend werden nur nachweislich integrierte Remote-Branches entfernt.
+Die vorhandenen PRs #3–#18 sind abhängigkeitsgeordnet nach `main` integriert;
+der separate Konsolidierungsrest wurde als PR #19 übernommen. Die 18 danach
+verbliebenen Entwicklungs-/Integrationsbranches wurden nach vollständiger
+Ancestry-, Abhängigkeits-, Sicherungs- und Abschlussprüfung remote entfernt.
 Keine neue Produktentwicklung und kein Release. [MERGE_POLICY.md](MERGE_POLICY.md)
 ist maßgeblich; normale Entwicklungs-CI benötigt keinen Artefaktupload.
 
@@ -14,6 +16,45 @@ Die ursprünglichen Produktänderungen bleiben erhalten; neue Features wurden
 nicht ergänzt. Ein Dateistand allein beweist keinen Remote-Merge: tatsächliche
 Merge-SHAs, native CI-Nachweise und der Abschluss der Branchbereinigung stehen
 in den GitHub-PRs und ihren Integrations-/Abschlusskommentaren.
+
+### Verifizierter Integrationsabschluss
+
+Nachweise am tatsächlichen Produktintegrationscommit
+`d9a363cbc630f67b5694e366cf46a9a92add6211` (Merge von #18):
+
+| Native Foundation-CI | Python 3.12.10 | Python 3.13.12 |
+| --- | --- | --- |
+| Ubuntu 24.04 | 436 bestanden | 436 bestanden |
+| Windows 2022 | 430 bestanden, 6 bestehende Skips | 430 bestanden, 6 bestehende Skips |
+
+- [Foundation CI 34847266269](https://github.com/Auda29/twincat-knowledge-mcp/actions/runs/34847266269):
+  alle vier Jobs erfolgreich, einschließlich Lint, Format, Typ- und Dependency-
+  Prüfung, vorhandener Wheel-/sdist-Installation aus fremdem CWD, stdio-/Snapshot-
+  Tests, Paketbau und Hashdatei. Paketupload gemäß Policy übersprungen.
+- [InfoSys probe CI 34847266344](https://github.com/Auda29/twincat-knowledge-mcp/actions/runs/34847266344):
+  jeweils 27 bestandene Tests unter Linux/pwsh, Windows/pwsh und Windows/PowerShell.
+- Zusätzlich lokal am selben Commit auf Linux: jeweils 436 bestandene Tests unter
+  Python 3.12.10/3.13.12, Ruff check/format, mypy und Dependency-Check erfolgreich;
+  Wheel und sdist gebaut und SHA-256 erfasst.
+- Alle 16 ursprünglichen PRs #3–#18 sind tatsächlich gemergt; sowohl ihre letzten
+  Heads als auch ihre Merge-Commits sind Vorfahren dieses `main`. #19 ergänzt nur
+  die vorhandenen Python-Pins und Dokumentation. Unabhängige Abschlussdelta-Review
+  einschließlich des korrigierten GOAL-Absatzes: PASS am identischen Browse-Tree.
+- Vor der Remote-Bereinigung: keine offenen Folge-PRs, exakte SHA-Liste mit 18
+  integrierten Branches. Git-Bundle verifiziert, in frischen Mirror zurückgespielt
+  und sämtliche Löschziele sowie ursprünglichen Branch-Heads aufgelöst. Löschung
+  atomar mit je einem erwarteten SHA-Lease; danach per API und `ls-remote` nur
+  `main` und keine offenen PRs bestätigt. Diese Bestandsangabe ist der Zeitpunkt
+  vor dem separaten abschließenden Dokumentationsnachtrag.
+- Elf lokale Arbeitsverzeichnisse bleiben erhalten. Sieben uncommittete Dateien
+  eines historischen Restore-Checkouts blieben byte-identisch; keine lokalen
+  Branches, Worktrees, Builddateien oder Archive wurden pauschal gelöscht.
+  Das geprüfte Bundle ist eine lokale Wiederherstellungssicherung, kein Off-site-Backup.
+
+Dieser Dokumentationsnachtrag ändert keinen Produktcode, Test oder Workflow.
+Seine eigene Review, CI, abschließende `main`-CI und temporäre Branchbereinigung
+werden im zugehörigen PR-Kommentar nachgewiesen; die obigen Run-IDs bezeichnen
+bewusst den tatsächlich ausgeführten Produktintegrationscommit, keinen späteren SHA.
 
 ### Prüf- und Integrationsnachweise
 
@@ -39,10 +80,10 @@ in den GitHub-PRs und ihren Integrations-/Abschlusskommentaren.
   verifizierte Bindung des veröffentlichten Trees an die unabhängige Review.
   Lokale Testzahlen ersetzen diese Remote-Prüfung nicht.
 
-Nach #18 sind das tatsächliche `main` und anschließend jede Branchlöschung
-zurückzuprüfen. Lokale Arbeitsverzeichnisse, ungesicherte Dateien und historische
-Archive werden nicht pauschal gelöscht. Explizite Paketbereitstellung bleibt ein
-separater Auftrag mit erfolgreichem Upload/Download und Prüfsummenprüfung.
+Die Prüfung des tatsächlichen `main` nach #18 und die zurückgelesene Remote-
+Branchbereinigung sind oben belegt. Lokale Arbeitsverzeichnisse, ungesicherte
+Dateien und historische Archive bleiben erhalten. Explizite Paketbereitstellung
+bleibt ein separater Auftrag mit erfolgreichem Upload/Download und Prüfsummenprüfung.
 
 **Offen bleiben:** vollständiger Toolkatalog, `tc_browse_topics`-MCP-Anbindung,
 HTTP/Auth/Hosts, universelles Wirebudget, SDK-Supportability, reale zulässige
