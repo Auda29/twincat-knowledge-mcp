@@ -53,6 +53,15 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser.add_argument(
         "--title", help="optional exact title, case-insensitive"
     )
+    corpus_parser = commands.add_parser("corpus", help="operator corpus commands")
+    corpus_commands = corpus_parser.add_subparsers(dest="corpus_command", required=True)
+    validate_parser = corpus_commands.add_parser(
+        "validate", help="verify a pinned topic package without activating it"
+    )
+    validate_parser.add_argument("package_dir", type=Path)
+    validate_parser.add_argument("--expected-manifest-sha256", required=True)
+    validate_parser.add_argument("--cache-dir", required=True, type=Path)
+    validate_parser.add_argument("--json", action="store_true")
     return parser
 
 
@@ -142,6 +151,57 @@ def _run_inspect(
     return 0 if topics else 2
 
 
+def _run_corpus_validate(
+    package: Path, fingerprint: str, cache: Path, as_json: bool
+) -> int:
+    from .corpus.topic_package_load import TopicPackageLoadError, load_topic_package
+
+    try:
+        with load_topic_package(
+            package, expected_manifest_sha256=fingerprint, cache_dir=cache
+        ) as loaded:
+            report = {
+                "schema_version": "corpus-validation-1",
+                "status": "valid",
+                "scope": "topic_package",
+                "manifest_sha256": fingerprint,
+                "topic_count": loaded.summary.topic_count,
+                "section_count": loaded.summary.section_count,
+                "language_counts": dict(loaded.summary.language_counts),
+                "limitations": [
+                    "Integrity and topic consistency, "
+                    "not source authenticity or rights.",
+                    "No package activation or full-product acceptance.",
+                ],
+            }
+    except TopicPackageLoadError:
+        message = "Topic package validation failed."
+        if as_json:
+            print(
+                json.dumps(
+                    {
+                        "schema_version": "corpus-validation-1",
+                        "status": "error",
+                        "scope": "topic_package",
+                        "message": message,
+                    }
+                )
+            )
+        else:
+            print(message, file=sys.stderr)
+        return 1
+    if as_json:
+        print(json.dumps(report, ensure_ascii=True))
+    else:
+        print(
+            f"Topic package valid: {report['topic_count']} topics, "
+            f"{report['section_count']} sections."
+        )
+        print("Integrity and topic consistency, not source authenticity or rights.")
+        print("No package activation or full-product acceptance.")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -151,5 +211,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_doctor(args.config, args.json)
     if args.command == "inspect-infosys":
         return _run_inspect(args.source, args.library, args.language, args.title)
+    if args.command == "corpus" and args.corpus_command == "validate":
+        return _run_corpus_validate(
+            args.package_dir, args.expected_manifest_sha256, args.cache_dir, args.json
+        )
     parser.print_help()
     return 0
