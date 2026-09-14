@@ -37,7 +37,8 @@ Topic count is bounded incrementally, retaining one serialized record at a time.
 Each JSON record and generated search string is limited to 1 MiB UTF-8 after
 serialization; these are output-size checks, not a claim that serialization of
 arbitrarily large pre-existing in-memory objects allocates no memory. Query and
-filter strings are limited to 512 UTF-8 bytes, results to 20 and offset to 100000.
+Query and filter strings are limited to 2048 UTF-8 bytes (the service contract
+also limits queries to 512 Unicode characters), results to 20 and offset to 100000.
 Configurable build limits can only be lowered from the hard maxima.
 
 The operator chooses an output in an existing directory. Build occurs inside an
