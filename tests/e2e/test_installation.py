@@ -488,7 +488,7 @@ def test_wheel_installs_without_source_checkout(
             "status = service.get_corpus_status(contracts.CorpusStatusInput()); "
             "assert status.status == 'ok' and status.data.topic_count == 2; "
             "assert status.data.package_snapshot_id == 'package-generation'; "
-            "assert service.search(contracts.SearchInput(query='Synthetic', "
+            "assert service.search(contracts.SearchInput(query='Parent', "
             "filters=contracts.QueryFilters(snapshot_id='v1'))).status "
             "== 'not_found'; "
             "invalid = service.get_topic(contracts.GetTopicInput.model_construct("
@@ -514,7 +514,7 @@ def test_wheel_installs_without_source_checkout(
             "held = snapshots.load_active_snapshot(state, cache_dir=cache); "
             "held_service = queries.TopicQueryService(held); "
             "held_result = held_service.search("
-            "contracts.SearchInput(query='Synthetic')); "
+            "contracts.SearchInput(query='Parent')); "
             "assert held_result.snapshot_ids == ('package-generation',); "
             "snapshot_b = snapshot.model_copy(update={'snapshot_id': 'v2'}); "
             "raw_b = read_infosys(p, source_id='fixture', snapshot_id='v2'); "
@@ -527,11 +527,11 @@ def test_wheel_installs_without_source_checkout(
             "expected_manifest_sha256=built_b.manifest_sha256, cache_dir=cache); "
             "current = snapshots.load_active_snapshot(state, cache_dir=cache); "
             "current_result = queries.TopicQueryService(current).search("
-            "contracts.SearchInput(query='Synthetic')); "
+            "contracts.SearchInput(query='Parent')); "
             "assert current_result.status == 'ok'; "
             "assert current_result.snapshot_ids == ('package-next',); "
             "assert current_result.data.items[0].id == topics_b[0].id; "
-            "assert held_service.search(contracts.SearchInput(query='Synthetic')) "
+            "assert held_service.search(contracts.SearchInput(query='Parent')) "
             "== held_result; "
             "assert current.index.get_topic(topics_b[0].id) == topics_b[0]; "
             "assert current.index.get_topic(t.id) is None; "
@@ -541,7 +541,7 @@ def test_wheel_installs_without_source_checkout(
             "snapshots.rollback_snapshot(state, cache_dir=cache); "
             "restored = snapshots.load_active_snapshot(state, cache_dir=cache); "
             "restored_result = queries.TopicQueryService(restored).search("
-            "contracts.SearchInput(query='Synthetic')); "
+            "contracts.SearchInput(query='Parent')); "
             "assert restored_result == held_result; "
             "assert restored.index.get_topic(t.id) == t; restored.close(); "
             "held.close(); assert list(cache.iterdir()) == []; "
@@ -770,9 +770,9 @@ def test_wheel_installs_without_source_checkout(
     assert report["status"] == "valid"
     assert report["scope"] == "topic_package"
     assert report["manifest_sha256"] == fingerprint
-    assert report["topic_count"] == 1
-    assert report["section_count"] == 1
-    assert report["language_counts"] == {"en": 1}
+    assert report["topic_count"] == 2
+    assert report["section_count"] == 2
+    assert report["language_counts"] == {"en": 2}
     assert report["limitations"]
     assert str(operator_dir) not in validation.stdout
     assert "Synthetic" not in validation.stdout
@@ -786,7 +786,7 @@ def test_wheel_installs_without_source_checkout(
     assert human_validation.returncode == 0
     assert human_validation.stderr == ""
     assert human_validation.stdout.startswith(
-        "Topic package valid: 1 topics, 1 sections.\n"
+        "Topic package valid: 2 topics, 2 sections.\n"
     )
     assert "not source authenticity or rights" in human_validation.stdout
     assert "No package activation" in human_validation.stdout
