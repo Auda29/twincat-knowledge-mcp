@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -301,6 +302,37 @@ def test_wheel_installs_without_source_checkout(
             "assert all(hashlib.sha256((built.path / f.filename).read_bytes())"
             ".hexdigest() == f.sha256 for f in built.manifest.files); "
             "assert built.manifest_path.read_bytes() == descriptor_bytes; "
+            "import twincat_knowledge.corpus.topic_snapshot as snapshots; "
+            "assert Path(snapshots.__file__).is_relative_to(Path(sys.prefix)); "
+            "state = p.with_name('installed-snapshot-state'); state.mkdir(); "
+            "snapshots.activate_snapshot(state, built.path, "
+            "expected_manifest_sha256=built.manifest_sha256, cache_dir=cache); "
+            "held = snapshots.load_active_snapshot(state, cache_dir=cache); "
+            "snapshot_b = snapshot.model_copy(update={'snapshot_id': 'v2'}); "
+            "raw_b = read_infosys(p, source_id='fixture', snapshot_id='v2'); "
+            "topics_b = module.normalize_infosys(raw_b, (snapshot_b,)); "
+            "manifest_b = manifest.model_copy(update={"
+            "'snapshot_id': 'package-next', 'sources': (snapshot_b,)}); "
+            "built_b = packages.build_topic_package("
+            "p.with_name('installed-package-next'), manifest_b, iter(topics_b)); "
+            "snapshots.activate_snapshot(state, built_b.path, "
+            "expected_manifest_sha256=built_b.manifest_sha256, cache_dir=cache); "
+            "current = snapshots.load_active_snapshot(state, cache_dir=cache); "
+            "assert current.index.get_topic(topics_b[0].id) == topics_b[0]; "
+            "assert current.index.get_topic(t.id) is None; "
+            "assert held.index.get_topic(t.id) == t; "
+            "assert held.index.get_topic(topics_b[0].id) is None; "
+            "current.close(); "
+            "snapshots.rollback_snapshot(state, cache_dir=cache); "
+            "restored = snapshots.load_active_snapshot(state, cache_dir=cache); "
+            "assert restored.index.get_topic(t.id) == t; restored.close(); "
+            "held.close(); assert list(cache.iterdir()) == []; "
+            "assert snapshots.read_snapshot_state(state).active.manifest_sha256 "
+            "== built.manifest_sha256; "
+            "assert built.manifest_path.read_bytes() == descriptor_bytes; "
+            "assert all(hashlib.sha256((pkg.path / f.filename).read_bytes())"
+            ".hexdigest() == f.sha256 for pkg in (built, built_b) "
+            "for f in pkg.manifest.files); "
             "import twincat_knowledge.corpus.topic_index as storage; "
             "assert Path(storage.__file__).is_relative_to(Path(sys.prefix)); "
             "db = p.with_name('installed-topic-index.sqlite'); "
@@ -322,6 +354,208 @@ def test_wheel_installs_without_source_checkout(
     assert normalization.returncode == 0, normalization.stderr
     assert normalization.stdout.strip() == "installed normalization verified"
     assert normalization.stderr == ""
+
+    package = operator_dir / "installed-package"
+    cache = operator_dir / "installed-package-cache"
+    before = {p.name: p.read_bytes() for p in package.iterdir()}
+    fingerprint = hashlib.sha256(before["manifest.json"]).hexdigest()
+    validation_command = [
+        *_console_command(python, console_script),
+        "corpus",
+        "validate",
+        package,
+        "--expected-manifest-sha256",
+        fingerprint,
+        "--cache-dir",
+        cache,
+        "--json",
+    ]
+    validation = _run(validation_command, cwd=foreign_cwd, env=env, timeout=30)
+    assert validation.returncode == 0, validation.stderr
+    report = json.loads(validation.stdout)
+    assert report["schema_version"] == "corpus-validation-1"
+    assert report["status"] == "valid"
+    assert report["scope"] == "topic_package"
+    assert report["manifest_sha256"] == fingerprint
+    assert report["topic_count"] == 1
+    assert report["section_count"] == 1
+    assert report["language_counts"] == {"en": 1}
+    assert report["limitations"]
+    assert str(operator_dir) not in validation.stdout
+    assert "Synthetic" not in validation.stdout
+    assert validation.stderr == ""
+    assert list(cache.iterdir()) == []
+    assert {p.name: p.read_bytes() for p in package.iterdir()} == before
+
+    human_validation = _run(
+        validation_command[:-1], cwd=foreign_cwd, env=env, timeout=30
+    )
+    assert human_validation.returncode == 0
+    assert human_validation.stderr == ""
+    assert human_validation.stdout.startswith(
+        "Topic package valid: 1 topics, 1 sections.\n"
+    )
+    assert "not source authenticity or rights" in human_validation.stdout
+    assert "No package activation" in human_validation.stdout
+    assert str(operator_dir) not in human_validation.stdout
+
+    # Exercise the installed snapshot operator commands before tampering with
+    # the package.  The command is run from a foreign working directory.
+    package_b = operator_dir / "installed-package-next"
+    fingerprint_b = hashlib.sha256(
+        (package_b / "manifest.json").read_bytes()
+    ).hexdigest()
+    snapshot_state = operator_dir / "snapshot-state"
+    snapshot_cache = operator_dir / "snapshot-cache"
+    snapshot_state.mkdir()
+    snapshot_cache.mkdir()
+    snapshot_config = operator_dir / "snapshot-cli.toml"
+    created = _run(
+        [
+            *_console_command(python, console_script),
+            "init",
+            "--config",
+            snapshot_config,
+        ],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert created.returncode == 0, created.stdout + created.stderr
+    config_before = snapshot_config.read_bytes()
+    snapshot_env = dict(env, HOME=str(operator_dir), USERPROFILE=str(operator_dir))
+    activate_a = [
+        *_console_command(python, console_script),
+        "corpus",
+        "activate",
+        package,
+        "--expected-manifest-sha256",
+        fingerprint,
+        "--state-dir",
+        snapshot_state,
+        "--cache-dir",
+        snapshot_cache,
+        "--json",
+    ]
+    selected_a = _run(
+        [*activate_a, "--config", "~/snapshot-cli.toml"],
+        cwd=foreign_cwd,
+        env=snapshot_env,
+        timeout=30,
+    )
+    assert snapshot_config.read_bytes() == config_before
+    assert selected_a.returncode == 0, selected_a.stderr
+    assert json.loads(selected_a.stdout)["active"]["manifest_sha256"] == fingerprint
+    assert selected_a.stderr == ""
+    assert list(snapshot_cache.iterdir()) == []
+
+    listed = _run(
+        [
+            *_console_command(python, console_script),
+            "corpus",
+            "list",
+            "--state-dir",
+            snapshot_state,
+            "--json",
+        ],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert listed.returncode == 0, listed.stderr
+    listed_report = json.loads(listed.stdout)
+    assert listed_report["status"] == "not_ready"
+    assert listed_report["active"]["manifest_sha256"] == fingerprint
+    assert "package_path" not in listed.stdout
+    assert listed.stderr == ""
+    list_config = operator_dir / "state-only.toml"
+    list_config.write_text(
+        '[paths]\nstate="snapshot-state"\ncache=42\n', encoding="utf-8"
+    )
+    pointer_before_list = (snapshot_state / "active.json").read_bytes()
+    cache_ignored = _run(
+        [
+            *_console_command(python, console_script),
+            "corpus",
+            "list",
+            "--config",
+            "~/state-only.toml",
+            "--json",
+        ],
+        cwd=foreign_cwd,
+        env=dict(snapshot_env, TCK_CACHE_DIR=""),
+        timeout=30,
+    )
+    assert cache_ignored.returncode == 0, cache_ignored.stdout + cache_ignored.stderr
+    assert json.loads(cache_ignored.stdout)["active"]["manifest_sha256"] == fingerprint
+    assert (snapshot_state / "active.json").read_bytes() == pointer_before_list
+    assert list(snapshot_cache.iterdir()) == []
+
+    activate_b = activate_a.copy()
+    activate_b[activate_b.index(package)] = package_b
+    activate_b[activate_b.index(fingerprint)] = fingerprint_b
+    selected_b = _run(activate_b, cwd=foreign_cwd, env=env, timeout=30)
+    assert selected_b.returncode == 0, selected_b.stderr
+    selected_b_report = json.loads(selected_b.stdout)
+    assert selected_b_report["active"]["manifest_sha256"] == fingerprint_b
+    assert selected_b_report["previous"]["manifest_sha256"] == fingerprint
+
+    rollback = _run(
+        [
+            *_console_command(python, console_script),
+            "corpus",
+            "rollback",
+            "--state-dir",
+            snapshot_state,
+            "--cache-dir",
+            snapshot_cache,
+            "--json",
+        ],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert rollback.returncode == 0, rollback.stderr
+    assert json.loads(rollback.stdout)["active"]["manifest_sha256"] == fingerprint
+    assert list(snapshot_cache.iterdir()) == []
+
+    state_before_bad_pin = (snapshot_state / "active.json").read_bytes()
+    bad_pin = _run(
+        [
+            *_console_command(python, console_script),
+            "corpus",
+            "activate",
+            package_b,
+            "--expected-manifest-sha256",
+            "0" * 64,
+            "--state-dir",
+            snapshot_state,
+            "--cache-dir",
+            snapshot_cache,
+            "--json",
+        ],
+        cwd=foreign_cwd,
+        env=env,
+        timeout=30,
+    )
+    assert bad_pin.returncode == 1
+    assert json.loads(bad_pin.stdout)["status"] == "error"
+    assert bad_pin.stderr == ""
+    assert (snapshot_state / "active.json").read_bytes() == state_before_bad_pin
+    assert list(snapshot_cache.iterdir()) == []
+
+    (package / "topics.jsonl").write_bytes(before["topics.jsonl"] + b" ")
+    tampered_before = {p.name: p.read_bytes() for p in package.iterdir()}
+    tampered = _run(validation_command, cwd=foreign_cwd, env=env, timeout=30)
+    assert tampered.returncode == 1
+    assert json.loads(tampered.stdout)["status"] == "error"
+    assert tampered.stderr == ""
+    assert "Traceback" not in tampered.stdout
+    assert str(operator_dir) not in tampered.stdout
+    assert list(cache.iterdir()) == []
+    assert (package / "topics.jsonl").read_bytes() == before["topics.jsonl"] + b" "
+    assert (package / "manifest.json").read_bytes() == before["manifest.json"]
+    assert {p.name: p.read_bytes() for p in package.iterdir()} == tampered_before
 
     config_path = operator_dir / "config.toml"
     init = _run(
