@@ -1,4 +1,4 @@
-# Projektstatus — Integrationscheckpoint vor Domain-Browse
+# Projektstatus — integrierter Entwicklungsstand einschließlich Domain-Browse
 
 ## Aktueller Auftrag vom 14. September 2026
 
@@ -7,11 +7,13 @@ anschließend werden nur nachweislich integrierte Remote-Branches entfernt.
 Keine neue Produktentwicklung und kein Release. [MERGE_POLICY.md](MERGE_POLICY.md)
 ist maßgeblich; normale Entwicklungs-CI benötigt keinen Artefaktupload.
 
-Dieser Dateistand enthält die Komponenten #3–#17 einschließlich der gemeinsamen
-Snapshot-/stdio-/Hierarchie-Tests. Domain-Browse aus [#18](https://github.com/Auda29/twincat-knowledge-mcp/pull/18)
-ist der nächste getrennte Integrationsschritt. Ein lokaler Kandidatenstand ist
-kein Nachweis eines Remote-Merges: tatsächliche Merge-SHAs und native CI-Nachweise
-stehen in den jeweiligen GitHub-PRs und ihren Integrationskommentaren.
+Dieser Dateistand vereinigt die vorhandenen Komponenten #3–#18 einschließlich
+der gemeinsamen Snapshot-/stdio-/Hierarchie-Tests und des Domain-Browse-Service.
+Browse ist ausschließlich eine Domain-Funktion, keine zusätzliche MCP-Anbindung.
+Die ursprünglichen Produktänderungen bleiben erhalten; neue Features wurden
+nicht ergänzt. Ein Dateistand allein beweist keinen Remote-Merge: tatsächliche
+Merge-SHAs, native CI-Nachweise und der Abschluss der Branchbereinigung stehen
+in den GitHub-PRs und ihren Integrations-/Abschlusskommentaren.
 
 ### Prüf- und Integrationsnachweise
 
@@ -27,6 +29,12 @@ stehen in den jeweiligen GitHub-PRs und ihren Integrationskommentaren.
   unabhängig 422 Tests auf Linux 3.12.10; Koordinator 422 auf 3.12.10 und 3.13.12.
 - Der verbleibende Konsolidierungs-PR übernimmt nur Dokumentation und die bereits
   vorhandenen exakten Python-Pins 3.12.10/3.13.12, keinen weiteren Produktcode.
+- Browse-Integrationskandidat: Koordinator jeweils 436 Tests auf Linux 3.12.10
+  und 3.13.12 bestanden, einschließlich echter Wheel-/sdist-Installation und
+  stdio-/Snapshot-Lifecycle; Ruff, Format und mypy erfolgreich. `src`, `tests`,
+  Workflows und Lockfile sind identisch zum historischen Policy-Head
+  `6601a8e2cabd4aad5c55d8e86fc88e42c64cbc4b`. Nur Integrationsdokumentation änderte sich.
+  Die unabhängige Review und native CI am veröffentlichten Stand bleiben separate Gates.
 - Jeder tatsächliche Merge erfordert aktuelle native Windows-/Linux-CI und eine
   verifizierte Bindung des veröffentlichten Trees an die unabhängige Review.
   Lokale Testzahlen ersetzen diese Remote-Prüfung nicht.

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import os
 import sqlite3
-from collections.abc import Iterable
+import sys
+from collections.abc import Iterable, Iterator
+from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
@@ -302,6 +304,80 @@ class TopicIndex:
         if self._connection is None:
             raise TopicIndexError("topic index is closed")
         return self._connection
+
+    def iter_topics(
+        self, *, max_topics: int = MAX_TOPICS
+    ) -> AbstractContextManager[Iterator[Topic]]:
+        """Stream a bounded canonical-ID-ordered topic view.
+
+        The cursor is owned by this context manager, not by the returned
+        iterator.  SQLite reads at most ``max_topics + 1`` rows: the sentinel
+        proves the actual count is within the caller's bound before its payload
+        is parsed.  This API is intended for trusted indexes already verified by
+        the package loader; direct callers still receive row-size and model
+        validation before a ``Topic`` is yielded.
+        """
+        limit = _check_bound(max_topics, "max_topics", MAX_TOPICS)
+        return self._iter_topics_context(limit)
+
+    @contextmanager
+    def _iter_topics_context(self, limit: int) -> Iterator[Iterator[Topic]]:
+        connection = self._connection_or_raise()
+        cursor: sqlite3.Cursor | None = None
+        try:
+            try:
+                cursor = connection.execute(
+                    "SELECT payload, length(CAST(payload AS BLOB)) "
+                    "FROM topics ORDER BY id ASC LIMIT ?",
+                    (limit + 1,),
+                )
+            except sqlite3.Error as exc:
+                raise TopicIndexError("topic index iteration failed") from exc
+
+            def stream() -> Iterator[Topic]:
+                count = 0
+                try:
+                    rows = iter(cursor)
+                except sqlite3.Error as exc:
+                    raise TopicIndexError("topic index iteration failed") from exc
+                while True:
+                    try:
+                        payload, payload_bytes = next(rows)
+                    except StopIteration:
+                        return
+                    except sqlite3.Error as exc:
+                        raise TopicIndexError("topic index iteration failed") from exc
+                    count += 1
+                    if count > limit:
+                        raise TopicIndexBoundsError(
+                            f"topic count exceeds the {limit}-topic limit"
+                        )
+                    if (
+                        not isinstance(payload, str)
+                        or not isinstance(payload_bytes, int)
+                        or payload_bytes < 0
+                        or payload_bytes > MAX_TOPIC_JSON_BYTES
+                    ):
+                        raise TopicIndexValidationError(
+                            "topic payload exceeds its safe byte bound"
+                        )
+                    try:
+                        topic = Topic.model_validate_json(payload)
+                    except Exception:
+                        raise TopicIndexValidationError(
+                            "topic payload is invalid"
+                        ) from None
+                    yield topic
+
+            yield stream()
+        finally:
+            if cursor is not None:
+                caller_exception = sys.exc_info()[1]
+                try:
+                    cursor.close()
+                except sqlite3.Error as exc:
+                    if caller_exception is None:
+                        raise TopicIndexError("topic index iteration failed") from exc
 
     def get_topic(self, topic_id: str) -> Topic | None:
         if not isinstance(topic_id, str):
