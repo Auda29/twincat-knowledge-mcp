@@ -9,6 +9,7 @@ description = "Data-source-neutral foundation for the TwinCAT Knowledge CLI"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+  "defusedxml==0.7.1",
   "mcp==2.2.0",
   "pydantic>=2.13.5,<3",
 ]
@@ -21,6 +22,7 @@ dev = [
   "mypy>=1.15,<2",
   "pytest>=8.3,<9",
   "ruff>=0.9,<1",
+  "types-defusedxml>=0.7,<1",
 ]
 
 [tool.hatch.build.targets.wheel]

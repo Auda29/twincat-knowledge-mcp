@@ -1,5 +1,11 @@
 # Umsetzungsziel: TwinCAT Knowledge MCP mit Agent-Swarm
 
+> **Aktuelle Merge-Regel (14.09.2026):** [MERGE_POLICY.md](MERGE_POLICY.md)
+> ersetzt die frühere Upload-Pflicht für Entwicklungs-PRs. Code-, Build-,
+> Installationsprüfungen und unabhängige Review bleiben verpflichtend.
+> Alte Quoten-/Auslieferungsbefunde sind historische Nachweise, keine aktuellen
+> Merge-Voraussetzungen. Produkt-/Release-Abnahme und Feature-Pause bleiben erhalten.
+
 ## Status
 
 Vom Nutzer beauftragtes Umsetzungsziel. Dieser Vertrag ist im Repository hinterlegt; allein das Schreiben dieser Datei aktiviert keinen nativen Hermes-Goal-Loop. Der Loop und die Subagent-Modellkonfiguration müssen in der ausführenden Hermes-Session aktiviert und geprüft werden.

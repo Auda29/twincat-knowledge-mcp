@@ -148,3 +148,24 @@ def test_cli_doctor_json_has_no_secret_output(tmp_path: Path) -> None:
     assert secret not in result.stdout
     assert secret not in result.stderr
     assert json.loads(result.stdout)["checks"]["corpus"]["status"] == "missing"
+
+
+def test_doctor_unknown_user_expansion_is_controlled_and_secret_free(tmp_path):
+    from contextlib import redirect_stderr, redirect_stdout
+    from io import StringIO
+
+    from twincat_knowledge.cli import main
+
+    private_path = "~unknown-user-4fa911ee8b1a4ed699225bf1e3601842/corpus"
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(f"[paths]\ncorpus = '{private_path}'\n", encoding="utf-8")
+    stdout, stderr = StringIO(), StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        result = main(["doctor", "--config", str(config_path), "--json"])
+    assert result == 1
+    report = json.loads(stdout.getvalue())
+    assert report["status"] == "not_ready"
+    # POSIX rejects unknown users; Windows may resolve a missing sibling home.
+    assert report["checks"]["corpus"]["status"] in {"error", "missing"}
+    assert stderr.getvalue() == ""
+    assert private_path not in stdout.getvalue()
