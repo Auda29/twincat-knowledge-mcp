@@ -1,41 +1,164 @@
 # TwinCAT Knowledge MCP
 
-**Status: Planung — noch kein installierbarer MCP-Server.**
+A local, read-only knowledge interface for Beckhoff and TwinCAT documentation. It gives agents access to a validated topic package without requiring a TwinCAT installation, a PLC connection, or access to an engineering project.
 
-Projektunabhängige, lokale Wissensschnittstelle für globale Beckhoff- und TwinCAT-Informationen. Ziel ist ein vollständig installierbarer Read-only-Server nach **MCP `2026-07-28`**, der Quellen, Bibliotheken, Symbole, Hardwareinformationen und Beispiele strukturiert für Agenten bereitstellt.
+**Status: working development implementation, not a production release.** The repository contains an installable Python CLI, a three-tool MCP server over stdio, and the topic ingestion, package validation, snapshot, search, and hierarchy components. The larger tool catalog in the implementation plan is not yet available.
 
-## Dokumentation
+No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must supply local source material that you are authorized to process and an approved topic package before the server can answer documentation queries.
 
-- [Vollständiger Umsetzungsplan](docs/PLAN.md): Architektur, Tool-Verträge, Installation, Sicherheit, TDD-Phasen und Release-Abnahme.
-- [Quellen](docs/SOURCES.md): bei der Planung herangezogene Primärdokumentation.
+## What is available
 
-## Geplante 15 Agent-Tools
+| Component | Current implementation |
+| --- | --- |
+| Source inspection | Read selected local InfoSys content and report metadata; inspection does not import or activate a corpus. |
+| Topic pipeline | Python APIs for reading and normalizing topics, exporting JSONL, building a SQLite/FTS5 index, and assembling topic packages. |
+| Package integrity | Validate the package manifest, artifact hashes, and topic consistency against an operator-supplied manifest SHA-256. |
+| Snapshot management | Operator CLI commands to activate a package, inspect the selected snapshot state, and roll back to the stored previous snapshot. |
+| Query service | Topic retrieval, full-text search, bounded responses, and cursor-based pagination. |
+| Hierarchy | Extraction, graph validation, and domain-level topic browsing. Browsing is not exposed as an MCP tool yet. |
+| MCP server | A fixed catalog of three read-only tools over stdio. |
 
-| Bereich | Tools |
-|---|---|
-| Dokumentation | `tc_search`, `tc_get_topic`, `tc_browse_topics` |
-| Symbole | `tc_find_symbols`, `tc_get_symbol`, `tc_compare_symbols` |
-| Bibliotheken | `tc_find_libraries`, `tc_get_library` |
-| Hardware | `tc_find_devices`, `tc_get_device` |
-| Fehlerreferenzen | `tc_lookup_error` |
-| Beispiele | `tc_search_examples`, `tc_get_example` |
-| Beziehungen | `tc_get_related` |
-| Bestand und Abdeckung | `tc_get_corpus_status` |
+### Available MCP tools
 
-## Geplante technische Basis
+| Tool | Purpose |
+| --- | --- |
+| `tc_get_corpus_status` | Report the selected corpus's availability and coverage within the implemented topic scope. |
+| `tc_get_topic` | Retrieve a topic or selected sections by identifier. |
+| `tc_search` | Search the loaded topic package. Unsupported knowledge categories are not implemented. |
 
-- Python, offizielles MCP Python SDK v2, SQLite/FTS5 und BM25.
-- stdio für lokale Agenten; optional abgesichertes Streamable HTTP.
-- Installation auf Windows und Linux ohne TwinCAT-Abhängigkeit des Servers.
-- Versionierte Wissenspakete mit Quellenbelegen, Coverage-Berichten und Rollback.
-- Semantische Suche optional und erst nach gemessenem Bedarf.
+The adapter uses the pinned MCP Python SDK `mcp==2.2.0` and the MCP `2026-07-28` protocol profile. Client compatibility must be checked against that profile; compatibility with every MCP host is not claimed. See the [adapter contract](docs/implementation/topic-mcp-adapter.md) for schemas, protocol metadata, response limits, and SDK coupling.
 
-## Grenzen
+## Install from source
 
-Kein Projektzugriff als Voraussetzung, keine ADS-/SPS-Verbindung, keine Engineering-Aktionen und keine Codeausführung durch Agent-Tools. Beckhoff-Dokumentation wird nicht mit diesem Repository verteilt. Bezugs-, Indexierungs- und Nutzungsrechte müssen vor dem Import geklärt werden.
+Requirements:
 
-Dies ist ein eigenständiges Vorhaben, kein als offiziell ausgewiesenes Beckhoff-Produkt. Softwarelizenz und eine etwaige öffentliche Veröffentlichung sind noch zu entscheiden.
+- Git and [uv](https://docs.astral.sh/uv/getting-started/installation/).
+- Python 3.12 or newer. CI explicitly tests Python **3.12.10** and **3.13.12** on Ubuntu 24.04 and Windows Server 2022.
+- SQLite with FTS5 support in the selected Python runtime.
+- Repository access if the repository is private.
 
-## Nächster Schritt
+The following creates a local development environment using the checked-in dependency lock:
 
-Nach Freigabe der Umsetzung: reale Datenquelle und Nutzungsrechte klären, Importformat praktisch prüfen und einen modernen MCP-Roundtrip mit dem festgelegten SDK nachweisen. Erst danach die erste installierbare vertikale Funktion implementieren.
+```sh
+git clone https://github.com/Auda29/twincat-knowledge-mcp.git
+cd twincat-knowledge-mcp
+uv sync --frozen --dev --python 3.12.10
+uv run --frozen twincat-knowledge --version
+uv run --frozen twincat-knowledge --help
+```
+
+The distribution and console command are named `twincat-knowledge`; the Python import package is `twincat_knowledge`. These instructions install from the checkout and do not assume a published PyPI release.
+
+## Start the MCP server
+
+From the checkout:
+
+```sh
+uv run --frozen twincat-knowledge serve --transport stdio
+```
+
+This is a protocol process, not an interactive chat or an HTTP endpoint. A compatible MCP client must launch it and exchange JSON-RPC messages through stdin/stdout. Without configured snapshot paths, tool discovery works, but knowledge calls report `not_available`. No corpus is downloaded or created. Existing `TCK_STATE_DIR` or `TCK_CACHE_DIR` environment variables still apply; unset them if you want an unconfigured first start.
+
+For client launch settings, use the absolute path to the installed console entry point:
+
+- Linux: `/absolute/path/to/twincat-knowledge-mcp/.venv/bin/twincat-knowledge`
+- Windows: `C:\absolute\path\to\twincat-knowledge-mcp\.venv\Scripts\twincat-knowledge.exe`
+
+Pass `serve`, `--transport`, and `stdio` as separate arguments. For a configured corpus, also pass `--config` and the absolute path to your TOML file. Client-specific configuration formats vary.
+
+The server loads and pins the selected package at startup. After activation or rollback, restart the server to load the new selection. See [stdio serving](docs/implementation/stdio-serving-cli.md) for startup behavior and failure conditions.
+
+## Configure and select a topic package
+
+### 1. Create an operator configuration
+
+```sh
+uv run --frozen twincat-knowledge init --config ./config.toml
+```
+
+`init` refuses to overwrite an existing file. Edit its snapshot paths, for example:
+
+```toml
+[paths]
+state = "./state"
+cache = "./cache"
+```
+
+Create both directories yourself before using them. Keep the state and private cache directories outside the topic package directory. Relative TOML paths resolve against the configuration file's directory. `init` does not create these directories.
+
+Snapshot path precedence is explicit CLI flags, then `TCK_STATE_DIR` / `TCK_CACHE_DIR`, then TOML. The legacy `paths.corpus` setting is not a fallback for snapshot selection.
+
+### 2. Supply an approved package and its expected hash
+
+A topic package contains `manifest.json`, `topics.jsonl`, and `topics.sqlite`. It is distinct from the Python software wheel or source archive.
+
+Package construction is currently a **Python API workflow**, not an end-to-end import/build CLI. See the [InfoSys reader](docs/implementation/python-infosys-reader.md), [normalization](docs/implementation/topic-normalization.md), and [package builder](docs/implementation/topic-package-build.md). The `inspect-infosys` command is metadata-only and cannot create a package for serving.
+
+Obtain the expected SHA-256 of `manifest.json` through your trusted package preparation process. A hash checks integrity; it does not establish vendor authenticity, licensing, or source approval.
+
+### 3. Validate, activate, and serve
+
+Replace `PATH_TO_PACKAGE` and `EXPECTED_MANIFEST_SHA256` below with your package directory and its expected 64-character lowercase hexadecimal manifest hash. These examples assume `config.toml`, `state`, and `cache` are in the repository root; run the commands there:
+
+```sh
+uv run --frozen twincat-knowledge corpus validate "PATH_TO_PACKAGE" --expected-manifest-sha256 "EXPECTED_MANIFEST_SHA256" --cache-dir ./cache --json
+uv run --frozen twincat-knowledge corpus activate "PATH_TO_PACKAGE" --expected-manifest-sha256 "EXPECTED_MANIFEST_SHA256" --config ./config.toml --json
+uv run --frozen twincat-knowledge corpus list --config ./config.toml --json
+uv run --frozen twincat-knowledge serve --transport stdio --config ./config.toml
+```
+
+`corpus list` reports stored snapshot references, not a fresh package validation or a full readiness check. To restore a previously activated snapshot:
+
+```sh
+uv run --frozen twincat-knowledge corpus rollback --config ./config.toml --json
+```
+
+Rollback requires a stored previous selection; it does not choose an arbitrary package. The separate `doctor --config ./config.toml --json` command checks the runtime and legacy corpus configuration. A `not_ready` result is not, by itself, a failure of stdio discovery or proof that snapshot activation failed. See the [snapshot CLI](docs/implementation/snapshot-cli.md) and [validation CLI](docs/implementation/corpus-validation-cli.md) for the exact contracts.
+
+## Development and verification
+
+Run from the repository root after installing the locked development dependencies:
+
+```sh
+uv run --frozen ruff check src tests
+uv run --frozen ruff format --check src tests
+uv run --frozen mypy
+uv pip check
+uv run --frozen python -m pytest -q tests
+uv build
+```
+
+The suite includes synthetic source and package fixtures, security regressions, real wheel and sdist installation in fresh environments, execution outside the source checkout, and stdio/snapshot lifecycle tests. Native CI runs the Python matrix on Linux and Windows, plus the PowerShell InfoSys probe tests. Passing synthetic tests does not establish real InfoSys coverage or full-product readiness.
+
+Normal push/PR CI builds and verifies the software without uploading artifacts. Explicit package upload is opt-in through `workflow_dispatch` with `upload_packages: true` and remains subject to storage quota. CI runner minutes are a separate limit. See [merge policy](docs/MERGE_POLICY.md).
+
+## Not implemented
+
+- The full planned tool catalog, including symbol, library, device, error, example, and relationship tools.
+- The `tc_browse_topics` MCP binding, despite the existing domain browse service.
+- Streamable HTTP, remote authentication, and host-specific deployment support.
+- Semantic search, a ready-to-use licensed corpus, or an end-to-end operator import/build command.
+- A universal response-size guarantee for every SDK-generated protocol error or arbitrary request metadata.
+
+These are roadmap items or documented limitations, not features enabled by configuration. See the [implementation plan](docs/PLAN.md) and [current status](docs/STATUS.md).
+
+## Safety, content rights, and licensing
+
+MCP tools are read-only. They do not control PLCs, open ADS connections, modify engineering projects, or execute code from retrieved content. Package activation and rollback are separate operator commands that change local snapshot state; they are not agent tools.
+
+Only process sources you are entitled to use. Beckhoff documentation is not redistributed with this repository. Source acquisition, indexing, and use rights must be resolved before ingestion. Package checksums do not replace those decisions.
+
+This is an independent project, not an official Beckhoff product. A software license and any public release remain undecided; do not assume an open-source license grant merely because you can access the repository.
+
+## Documentation
+
+Some project-planning and historical status documents are still in German. Component documentation records earlier review stages; use the current status and merge policy for the integration outcome and current gates.
+
+- [Current status and verification evidence](docs/STATUS.md)
+- [Merge policy](docs/MERGE_POLICY.md)
+- [Implementation plan and planned tool contracts](docs/PLAN.md)
+- [Primary sources](docs/SOURCES.md)
+- [MCP adapter contract](docs/implementation/topic-mcp-adapter.md)
+- [Stdio serving and client launch behavior](docs/implementation/stdio-serving-cli.md)
+- [Snapshot activation, listing, and rollback](docs/implementation/snapshot-cli.md)
+- [Topic package construction](docs/implementation/topic-package-build.md)
