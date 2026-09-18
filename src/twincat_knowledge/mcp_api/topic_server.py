@@ -1,6 +1,6 @@
 """Bounded MCP stdio adapter for the production topic query service.
 
-This module deliberately exposes only the three topic-slice tools.  Corpus loading,
+This module deliberately exposes only the four topic-slice tools.  Corpus loading,
 activation, and resource lifetime remain the caller's responsibility.
 """
 
@@ -17,6 +17,8 @@ from pydantic import Field, StrictStr, ValidationError
 
 from twincat_knowledge.domain.models import StrictModel
 from twincat_knowledge.services.query_contracts import (
+    BrowseTopicsInput,
+    BrowseTopicsResponse,
     CorpusStatusInput,
     CorpusStatusResponse,
     GetTopicInput,
@@ -26,7 +28,10 @@ from twincat_knowledge.services.query_contracts import (
     SearchResponse,
     TopicResponse,
 )
-from twincat_knowledge.services.topic_queries import TopicQueryService
+from twincat_knowledge.services.topic_queries import (
+    MAX_DOMAIN_RESPONSE_BYTES,
+    TopicQueryService,
+)
 
 PROTOCOL_VERSION = "2026-07-28"
 SERVER_NAME = "twincat-knowledge-topic"
@@ -61,6 +66,17 @@ class _GetTopicWireInput(StrictModel):
 
     topic_id: StrictStr = Field(min_length=1, max_length=256)
     section_ids: list[StrictStr] | None = Field(default=None, max_length=1_000)
+    limit: int = Field(default=5, strict=True, ge=1, le=20)
+    cursor: StrictStr | None = Field(default=None, max_length=2048)
+
+
+class _BrowseWireInput(StrictModel):
+    """Top-level wire arguments for one hierarchy level."""
+
+    parent_topic_id: StrictStr | None = Field(
+        default=None, min_length=1, max_length=256
+    )
+    filters: QueryFilters | None = None
     limit: int = Field(default=5, strict=True, ge=1, le=20)
     cursor: StrictStr | None = Field(default=None, max_length=2048)
 
@@ -139,6 +155,14 @@ def _tool(
 def _error_payload(model_type: Any, message: str) -> Any:
     """Build a fixed, schema-compatible execution error envelope."""
 
+    extra: dict[str, Any] = {}
+    if model_type is BrowseTopicsResponse:
+        # The browse envelope carries its measured-size contract fields; a
+        # fixed error payload reports a zero measurement against the budget.
+        extra = {
+            "actual_ascii_bytes": 0,
+            "ascii_byte_budget": MAX_DOMAIN_RESPONSE_BYTES,
+        }
     return model_type(
         schema_version="1.0",
         status="error",
@@ -148,6 +172,7 @@ def _error_payload(model_type: Any, message: str) -> Any:
         warnings=(message,),
         truncated=False,
         next_cursor=None,
+        **extra,
     )
 
 
@@ -222,6 +247,12 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
         raise TypeError("service must be a TopicQueryService")
 
     tools = [
+        _tool(
+            "tc_browse_topics",
+            "Browse content-tree roots or one level of children with breadcrumbs.",
+            _BrowseWireInput,
+            BrowseTopicsResponse.model_json_schema(by_alias=True, mode="serialization"),
+        ),
         _tool(
             "tc_get_corpus_status",
             "Return validated topic-corpus status and a bounded source inventory.",
@@ -306,6 +337,27 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
             )
         )
 
+    def public_browse(
+        parent_topic_id: StrictStr | None = None,
+        filters: QueryFilters | None = None,
+        limit: int = 5,
+        cursor: StrictStr | None = None,
+    ) -> BrowseTopicsResponse:
+        return service.browse_topics(
+            BrowseTopicsInput(
+                parent_topic_id=parent_topic_id,
+                filters=filters,
+                limit=limit,
+                cursor=cursor,
+            )
+        )
+
+    server.add_tool(
+        public_browse,
+        name="tc_browse_topics",
+        annotations=annotations,
+        structured_output=True,
+    )
     server.add_tool(
         public_status,
         name="tc_get_corpus_status",
@@ -395,6 +447,22 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
                     server_info,
                     TopicResponse,
                 )
+            if params.name == "tc_browse_topics":
+                wire = _parse(_BrowseWireInput, arguments)
+                browse_request = BrowseTopicsInput(
+                    parent_topic_id=wire.parent_topic_id,
+                    filters=wire.filters,
+                    limit=wire.limit,
+                    cursor=wire.cursor,
+                )
+                payload = _invoke_service(service.browse_topics, browse_request)
+                return _result(
+                    ctx.request_id,
+                    payload,
+                    params.name,
+                    server_info,
+                    BrowseTopicsResponse,
+                )
             if params.name == "tc_get_corpus_status":
                 wire = _parse(_StatusWireInput, arguments)
                 status_request = CorpusStatusInput(
@@ -422,6 +490,7 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
             response_model = {
                 "tc_search": SearchResponse,
                 "tc_get_topic": TopicResponse,
+                "tc_browse_topics": BrowseTopicsResponse,
                 "tc_get_corpus_status": CorpusStatusResponse,
             }.get(params.name)
             if response_model is None:
@@ -441,6 +510,7 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
             response_model = {
                 "tc_search": SearchResponse,
                 "tc_get_topic": TopicResponse,
+                "tc_browse_topics": BrowseTopicsResponse,
                 "tc_get_corpus_status": CorpusStatusResponse,
             }.get(params.name)
             if response_model is None:

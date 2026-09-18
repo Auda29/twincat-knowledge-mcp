@@ -309,3 +309,43 @@ def test_browse_rejects_one_oversized_record_without_cursor(tmp_path: Path) -> N
     assert result.next_cursor is None
     assert result.warnings == ("browse record exceeds the response bound",)
     loaded.close()
+
+
+def test_every_browse_outcome_is_a_complete_browse_response(tmp_path: Path) -> None:
+    """Error and not-available paths must carry the measured-size contract."""
+    from twincat_knowledge.services.query_contracts import (
+        BrowseTopicsResponse,
+        QueryFilters,
+    )
+
+    def check(response: object) -> None:
+        assert isinstance(response, BrowseTopicsResponse)
+        revalidated = BrowseTopicsResponse.model_validate(
+            response.model_dump(mode="python")
+        )
+        assert revalidated.ascii_byte_budget >= 1
+
+    empty_service = TopicQueryService(None)
+    check(empty_service.browse_topics(BrowseTopicsInput()))
+
+    no_hierarchy = _loaded(tmp_path, (_topic("plain", "Plain", None),))
+    service = TopicQueryService(no_hierarchy)
+    not_available = service.browse_topics(BrowseTopicsInput())
+    assert not_available.status == "not_available"
+    check(not_available)
+    no_hierarchy.close()
+
+    second = tmp_path / "second"
+    second.mkdir()
+    hierarchy = _loaded(second)
+    service = TopicQueryService(hierarchy)
+    check(service.browse_topics(BrowseTopicsInput()))
+    unsupported = service.browse_topics(
+        BrowseTopicsInput(filters=QueryFilters(product_family="x"))
+    )
+    assert unsupported.status == "error"
+    check(unsupported)
+    bad_cursor = service.browse_topics(BrowseTopicsInput(cursor="tampered"))
+    assert bad_cursor.status == "error"
+    check(bad_cursor)
+    hierarchy.close()
