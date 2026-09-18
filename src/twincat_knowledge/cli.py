@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import stat
 import sys
 from collections import Counter
@@ -109,6 +110,17 @@ def build_parser() -> argparse.ArgumentParser:
         snapshot_parser.add_argument("--state-dir", type=Path)
         snapshot_parser.add_argument("--cache-dir", type=Path)
         snapshot_parser.add_argument("--json", action="store_true")
+    config_parser = commands.add_parser("config", help="operator configuration helpers")
+    config_commands = config_parser.add_subparsers(dest="config_command", required=True)
+    print_client_parser = config_commands.add_parser(
+        "print-client", help="print the MCP server block for one host client"
+    )
+    print_client_parser.add_argument(
+        "--client", required=True, choices=("claude", "codex", "hermes")
+    )
+    print_client_parser.add_argument(
+        "--config", type=Path, help="operator TOML passed to the serve command"
+    )
     serve_parser = commands.add_parser("serve", help="run the read-only MCP server")
     serve_parser.add_argument(
         "--transport",
@@ -557,6 +569,58 @@ def _run_serve(
     return 1 if failed else 0
 
 
+def _console_entry_point() -> Path | None:
+    """Locate the installed console command next to the running interpreter."""
+
+    scripts = Path(sys.executable).resolve().parent
+    for name in ("twincat-knowledge.exe", "twincat-knowledge"):
+        candidate = scripts / name
+        if candidate.is_file():
+            return candidate
+    located = shutil.which("twincat-knowledge")
+    return None if located is None else Path(located)
+
+
+def _run_print_client(client: str, config: Path | None) -> int:
+    if client == "hermes":
+        print(
+            "client 'hermes' is not supported yet; its configuration schema "
+            "has not been verified",
+            file=sys.stderr,
+        )
+        return 1
+    command = _console_entry_point()
+    if command is None:
+        print(
+            "installed console entry point was not found; install the package first",
+            file=sys.stderr,
+        )
+        return 1
+    arguments = ["serve", "--transport", "stdio"]
+    if config is not None:
+        if not config.is_file():
+            print(
+                "configuration file does not exist; create it with init first",
+                file=sys.stderr,
+            )
+            return 1
+        arguments += ["--config", str(config.resolve())]
+    if client == "claude":
+        block = {
+            "mcpServers": {
+                "twincat-knowledge": {"command": str(command), "args": arguments}
+            }
+        }
+        print(json.dumps(block, ensure_ascii=True, indent=2))
+        return 0
+    # Codex uses a TOML block; JSON string encoding is valid TOML escaping.
+    rendered_args = ", ".join(json.dumps(item, ensure_ascii=True) for item in arguments)
+    print('[mcp_servers."twincat-knowledge"]')
+    print(f"command = {json.dumps(str(command), ensure_ascii=True)}")
+    print(f"args = [{rendered_args}]")
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -568,6 +632,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_inspect(args.source, args.library, args.language, args.title)
     if args.command == "ingest":
         return _run_ingest(args)
+    if args.command == "config" and args.config_command == "print-client":
+        return _run_print_client(args.client, args.config)
     if args.command == "corpus" and args.corpus_command == "validate":
         return _run_corpus_validate(
             args.package_dir, args.expected_manifest_sha256, args.cache_dir, args.json

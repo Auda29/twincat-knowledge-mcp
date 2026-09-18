@@ -66,7 +66,7 @@ For client launch settings, use the absolute path to the installed console entry
 - Linux: `/absolute/path/to/twincat-knowledge-mcp/.venv/bin/twincat-knowledge`
 - Windows: `C:\absolute\path\to\twincat-knowledge-mcp\.venv\Scripts\twincat-knowledge.exe`
 
-Pass `serve`, `--transport`, and `stdio` as separate arguments. For a configured corpus, also pass `--config` and the absolute path to your TOML file. Client-specific configuration formats vary.
+Pass `serve`, `--transport`, and `stdio` as separate arguments. For a configured corpus, also pass `--config` and the absolute path to your TOML file. For Claude Code and the Codex CLI, `config print-client --client <claude|codex> [--config ./config.toml]` prints the exact server block to adopt; see the [client config contract](docs/implementation/client-config-cli.md). Other client-specific configuration formats vary.
 
 The server loads and pins the selected package at startup. After activation or rollback, restart the server to load the new selection. See [stdio serving](docs/implementation/stdio-serving-cli.md) for startup behavior and failure conditions.
 
