@@ -280,6 +280,7 @@ def test_wheel_installs_without_source_checkout(
     assert json.loads(discovery.stdout)["id"] == 1
     listed_tools = json.loads(listing.stdout)["result"]["tools"]
     assert [tool["name"] for tool in listed_tools] == [
+        "tc_browse_topics",
         "tc_get_corpus_status",
         "tc_get_topic",
         "tc_search",

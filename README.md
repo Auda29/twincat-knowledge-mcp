@@ -2,7 +2,7 @@
 
 A local, read-only knowledge interface for Beckhoff and TwinCAT documentation. It gives agents access to a validated topic package without requiring a TwinCAT installation, a PLC connection, or access to an engineering project.
 
-**Status: working development implementation, not a production release.** The repository contains an installable Python CLI, a three-tool MCP server over stdio, an operator `ingest` command for locally installed InfoSys archives, and the topic ingestion, package validation, snapshot, search, and hierarchy components. The larger tool catalog in the implementation plan is not yet available.
+**Status: working development implementation, not a production release.** The repository contains an installable Python CLI, a four-tool MCP server over stdio, an operator `ingest` command for locally installed InfoSys archives, and the topic ingestion, package validation, snapshot, search, and hierarchy components. The larger tool catalog in the implementation plan is not yet available.
 
 No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must supply local source material that you are authorized to process and an approved topic package before the server can answer documentation queries.
 
@@ -16,13 +16,14 @@ No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must 
 | Package integrity | Validate the package manifest, artifact hashes, and topic consistency against an operator-supplied manifest SHA-256. |
 | Snapshot management | Operator CLI commands to activate a package, inspect the selected snapshot state, and roll back to the stored previous snapshot. |
 | Query service | Topic retrieval, full-text search, bounded responses, and cursor-based pagination. |
-| Hierarchy | Extraction, graph validation, and domain-level topic browsing. Browsing is not exposed as an MCP tool yet. |
-| MCP server | A fixed catalog of three read-only tools over stdio. |
+| Hierarchy | Extraction, graph validation, and domain-level topic browsing, exposed as the `tc_browse_topics` MCP tool. |
+| MCP server | A fixed catalog of four read-only tools over stdio. |
 
 ### Available MCP tools
 
 | Tool | Purpose |
 | --- | --- |
+| `tc_browse_topics` | Browse content-tree roots or one level of children with breadcrumbs. |
 | `tc_get_corpus_status` | Report the selected corpus's availability and coverage within the implemented topic scope. |
 | `tc_get_topic` | Retrieve a topic or selected sections by identifier. |
 | `tc_search` | Search the loaded topic package. Unsupported knowledge categories are not implemented. |
@@ -142,7 +143,6 @@ Normal push/PR CI builds and verifies the software without uploading artifacts. 
 ## Not implemented
 
 - The full planned tool catalog, including symbol, library, device, error, example, and relationship tools.
-- The `tc_browse_topics` MCP binding, despite the existing domain browse service.
 - Streamable HTTP, remote authentication, and host-specific deployment support.
 - Semantic search or a ready-to-use licensed corpus.
 - A universal response-size guarantee for every SDK-generated protocol error or arbitrary request metadata.

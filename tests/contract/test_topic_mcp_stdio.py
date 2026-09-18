@@ -36,7 +36,12 @@ META = {
     },
     "io.modelcontextprotocol/clientCapabilities": {},
 }
-TOOL_NAMES = ["tc_get_corpus_status", "tc_get_topic", "tc_search"]
+TOOL_NAMES = [
+    "tc_browse_topics",
+    "tc_get_corpus_status",
+    "tc_get_topic",
+    "tc_search",
+]
 
 
 def _request(request_id: int, method: str, **params: Any) -> dict[str, Any]:
@@ -128,12 +133,12 @@ def _run_wire(
         return [session.send(request) for request in requests]
 
 
-def test_topic_server_factory_exposes_exactly_three_tools() -> None:
+def test_topic_server_factory_exposes_exactly_four_tools() -> None:
     server = create_topic_server(TopicQueryService(None))
     tools = server._topic_tools  # type: ignore[attr-defined]
 
     assert [tool.name for tool in tools] == TOOL_NAMES
-    assert len(tools) == 3
+    assert len(tools) == 4
     assert all(tool.annotations is not None for tool in tools)
     for tool in tools:
         assert set(tool.annotations.model_dump(by_alias=True, exclude_none=True)) == {
@@ -178,6 +183,12 @@ def test_modern_discovery_list_and_direct_calls_are_real_wire_messages() -> None
                 name="tc_get_corpus_status",
                 arguments={},
             ),
+            _request(
+                5,
+                "tools/call",
+                name="tc_browse_topics",
+                arguments={"limit": 3},
+            ),
         ]
     )
     discover = responses[0]["result"]
@@ -202,6 +213,7 @@ def test_modern_discovery_list_and_direct_calls_are_real_wire_messages() -> None
             "tc_search": {"query": "x"},
             "tc_get_topic": {"topic_id": "x"},
             "tc_get_corpus_status": {},
+            "tc_browse_topics": {},
         }[tool["name"]]
         validate(instance=valid_args, schema=tool["inputSchema"])
 
@@ -228,6 +240,21 @@ def test_modern_discovery_list_and_direct_calls_are_real_wire_messages() -> None
     validate(
         instance=status["structuredContent"],
         schema=schemas["tc_get_corpus_status"]["outputSchema"],
+    )
+
+    browse = responses[4]["result"]
+    assert browse["resultType"] == "complete"
+    assert browse["isError"] is False
+    assert browse["structuredContent"]["status"] == "ok"
+    browse_items = browse["structuredContent"]["data"]["items"]
+    assert 1 <= len(browse_items) <= 3
+    for item in browse_items:
+        assert item["topic_id"]
+        assert item["title"]
+    assert "status=ok" in browse["content"][0]["text"]
+    validate(
+        instance=browse["structuredContent"],
+        schema=schemas["tc_browse_topics"]["outputSchema"],
     )
 
 
