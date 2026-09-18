@@ -2,7 +2,7 @@
 
 A local, read-only knowledge interface for Beckhoff and TwinCAT documentation. It gives agents access to a validated topic package without requiring a TwinCAT installation, a PLC connection, or access to an engineering project.
 
-**Status: working development implementation, not a production release.** The repository contains an installable Python CLI, a three-tool MCP server over stdio, and the topic ingestion, package validation, snapshot, search, and hierarchy components. The larger tool catalog in the implementation plan is not yet available.
+**Status: working development implementation, not a production release.** The repository contains an installable Python CLI, a three-tool MCP server over stdio, an operator `ingest` command for locally installed InfoSys archives, and the topic ingestion, package validation, snapshot, search, and hierarchy components. The larger tool catalog in the implementation plan is not yet available.
 
 No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must supply local source material that you are authorized to process and an approved topic package before the server can answer documentation queries.
 
@@ -11,6 +11,7 @@ No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must 
 | Component | Current implementation |
 | --- | --- |
 | Source inspection | Read selected local InfoSys content and report metadata; inspection does not import or activate a corpus. |
+| InfoSys ingest | Operator CLI that discovers a locally installed InfoSys `.mshc` archive (or takes an explicit path) and builds a validated topic package from selected libraries and one language. |
 | Topic pipeline | Python APIs for reading and normalizing topics, exporting JSONL, building a SQLite/FTS5 index, and assembling topic packages. |
 | Package integrity | Validate the package manifest, artifact hashes, and topic consistency against an operator-supplied manifest SHA-256. |
 | Snapshot management | Operator CLI commands to activate a package, inspect the selected snapshot state, and roll back to the stored previous snapshot. |
@@ -88,13 +89,19 @@ Create both directories yourself before using them. Keep the state and private c
 
 Snapshot path precedence is explicit CLI flags, then `TCK_STATE_DIR` / `TCK_CACHE_DIR`, then TOML. The legacy `paths.corpus` setting is not a fallback for snapshot selection.
 
-### 2. Supply an approved package and its expected hash
+### 2. Build a package from your local InfoSys installation
 
 A topic package contains `manifest.json`, `topics.jsonl`, and `topics.sqlite`. It is distinct from the Python software wheel or source archive.
 
-Package construction is currently a **Python API workflow**, not an end-to-end import/build CLI. See the [InfoSys reader](docs/implementation/python-infosys-reader.md), [normalization](docs/implementation/topic-normalization.md), and [package builder](docs/implementation/topic-package-build.md). The `inspect-infosys` command is metadata-only and cannot create a package for serving.
+If the official Beckhoff offline documentation (`TC3-InfoSys.exe`) is installed locally, `ingest` discovers its Help Library archive and builds a package:
 
-Obtain the expected SHA-256 of `manifest.json` through your trusted package preparation process. A hash checks integrity; it does not establish vendor authenticity, licensing, or source approval.
+```sh
+uv run --frozen twincat-knowledge ingest --format infosys-mshc --language en --output "PATH_TO_NEW_PACKAGE_DIR" --rights-reference "YOUR_RIGHTS_DECISION_REFERENCE" --json
+```
+
+Use `--source` for an explicit `.mshc` path, `--library` (repeatable) to restrict the selection, and `--catalog-root` for a custom Help Library location. One run imports one archive and one language; the report prints the manifest SHA-256 needed below. The mandatory `--rights-reference` records your own usage-rights decision; it does not establish vendor authenticity, licensing, or source approval. See the [ingest contract](docs/implementation/infosys-ingest-cli.md).
+
+If you prepare packages elsewhere, obtain the expected SHA-256 of `manifest.json` through your trusted package preparation process. A hash checks integrity; it does not establish vendor authenticity, licensing, or source approval. The `inspect-infosys` command remains metadata-only and cannot create a package for serving.
 
 ### 3. Validate, activate, and serve
 
@@ -137,7 +144,7 @@ Normal push/PR CI builds and verifies the software without uploading artifacts. 
 - The full planned tool catalog, including symbol, library, device, error, example, and relationship tools.
 - The `tc_browse_topics` MCP binding, despite the existing domain browse service.
 - Streamable HTTP, remote authentication, and host-specific deployment support.
-- Semantic search, a ready-to-use licensed corpus, or an end-to-end operator import/build command.
+- Semantic search or a ready-to-use licensed corpus.
 - A universal response-size guarantee for every SDK-generated protocol error or arbitrary request metadata.
 
 These are roadmap items or documented limitations, not features enabled by configuration. See the [implementation plan](docs/PLAN.md) and [current status](docs/STATUS.md).
