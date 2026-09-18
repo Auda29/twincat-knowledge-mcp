@@ -215,6 +215,13 @@ class TopicQueryService:
             response = response.model_copy(update={"actual_ascii_bytes": measured})
         return response
 
+    def _browse_error(self, message: str) -> BrowseTopicsResponse:
+        # Browse failures must still satisfy the browse measured-size contract.
+        return self._browse_envelope("error", warnings=(message,))
+
+    def _browse_not_available(self, message: str) -> BrowseTopicsResponse:
+        return self._browse_envelope("not_available", warnings=(message,))
+
     def _error(self, message: str) -> ResponseEnvelope[T]:
         # Messages are fixed service-domain text; no exception or path detail is
         # ever returned to a caller.
@@ -341,21 +348,19 @@ class TopicQueryService:
             self._source(crumb.topic.source) for crumb in breadcrumb.items
         )
 
-    def browse_topics(
-        self, request: BrowseTopicsInput
-    ) -> ResponseEnvelope[BrowseTopicsData]:
+    def browse_topics(self, request: BrowseTopicsInput) -> BrowseTopicsResponse:
         """Return roots or direct explicit children, never recursive topic bodies."""
         validated_request = _validated_request(BrowseTopicsInput, request)
         if validated_request is None:
-            return self._error("invalid browse input")
+            return self._browse_error("invalid browse input")
         request = validated_request
         if self._loaded is None:
-            return self._not_available("validated topic corpus is not available")
+            return self._browse_not_available("validated topic corpus is not available")
         filters = request.filters
         if filters is not None:
             for field in ("product_family", "documented_version", "device_revision"):
                 if getattr(filters, field) is not None:
-                    return self._error(f"unsupported filter: {field}")
+                    return self._browse_error(f"unsupported filter: {field}")
         try:
             generation = self._generation()
             if not self._package_snapshot_filter(
@@ -364,7 +369,7 @@ class TopicQueryService:
                 return self._browse_envelope("not_found")
             graph = self._topic_graph(generation)
             if not graph.has_hierarchy:
-                return self._not_available("topic hierarchy is not available")
+                return self._browse_not_available("topic hierarchy is not available")
             if request.parent_topic_id is None:
                 candidates = graph.roots()
             else:
@@ -399,7 +404,7 @@ class TopicQueryService:
                 )
                 position = state.position
             if position > len(candidates):
-                return self._error("browse cursor is outside the topic range")
+                return self._browse_error("browse cursor is outside the topic range")
             page: list[BrowseTopicItem] = []
             page_sources: list[SourceCitation] = []
             next_cursor: str | None = None
@@ -444,7 +449,7 @@ class TopicQueryService:
                     break
                 next_cursor = candidate_cursor
             if not page and position < len(candidates):
-                return self._error("browse record exceeds the response bound")
+                return self._browse_error("browse record exceeds the response bound")
             has_more = position + len(page) < len(candidates)
             if not has_more:
                 next_cursor = None
@@ -472,12 +477,12 @@ class TopicQueryService:
                 next_cursor=next_cursor,
             )
             if not self._fits(result):
-                return self._error("browse result exceeds the response bound")
+                return self._browse_error("browse result exceeds the response bound")
             return result
         except (CursorError, TopicHierarchyGraphError):
-            return self._error("topic browse failed")
+            return self._browse_error("topic browse failed")
         except Exception:
-            return self._error("topic browse failed")
+            return self._browse_error("topic browse failed")
 
     def _fits(self, response: object) -> bool:
         return _json_bytes(response) <= MAX_DOMAIN_RESPONSE_BYTES

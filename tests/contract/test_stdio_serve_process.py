@@ -318,6 +318,7 @@ def test_installed_style_serve_stdio_handles_modern_wire_without_initialize() ->
     assert [response["id"] for response in responses] == [1, 2, 3]
     assert responses[0]["result"]["supportedVersions"] == ["2026-07-28"]
     assert [tool["name"] for tool in responses[1]["result"]["tools"]] == [
+        "tc_browse_topics",
         "tc_get_corpus_status",
         "tc_get_topic",
         "tc_search",

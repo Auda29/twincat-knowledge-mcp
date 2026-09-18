@@ -15,7 +15,7 @@ from twincat_knowledge.corpus.topic_package_load import load_topic_package
 from twincat_knowledge.domain.identity import canonical_section_id, canonical_topic_id
 from twincat_knowledge.domain.models import EntityCounts, SourceSnapshot
 from twincat_knowledge.domain.provenance import SourceReference
-from twincat_knowledge.domain.topics import Section, Topic
+from twincat_knowledge.domain.topics import Section, Topic, TopicMetadata
 from twincat_knowledge.mcp_api.topic_server import run_topic_stdio
 from twincat_knowledge.services.topic_queries import TopicQueryService
 
@@ -79,6 +79,16 @@ def _topic(
                 source=source.model_copy(update={"section_id": section_id}),
             )
         sections.append(section)
+    # Explicit Help TOC metadata gives the served fixture a real hierarchy:
+    # EN topic 0 is the root and later EN topics are its direct children.
+    if language == "en":
+        parent = "-1" if index == 0 else "fixture.topic.0"
+        metadata = (
+            TopicMetadata(name="Microsoft.Help.TocParent", content=parent),
+            TopicMetadata(name="Microsoft.Help.TocOrder", content=str(index + 1)),
+        )
+    else:
+        metadata = ()
     return Topic(
         id=topic_id,
         title=title,
@@ -86,6 +96,7 @@ def _topic(
         library="fixture-library",
         language=language,
         source=source,
+        metadata=metadata,
         sections=tuple(sections),
     )
 
