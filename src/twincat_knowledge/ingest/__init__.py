@@ -14,6 +14,14 @@ from .infosys import (
     XMLDepthLimitError,
     read_infosys,
 )
+from .infosys_discovery import (
+    DiscoveredInfoSysArchive,
+    InfoSysDiscoveryAmbiguityError,
+    InfoSysDiscoveryError,
+    default_catalog_root,
+    discover_infosys_archives,
+    select_infosys_archive,
+)
 from .topic_hierarchy import (
     TopicHierarchyExtractionError,
     extract_topic_hierarchies,
@@ -21,7 +29,10 @@ from .topic_hierarchy import (
 )
 
 __all__ = [
+    "DiscoveredInfoSysArchive",
     "InfoSysArchiveError",
+    "InfoSysDiscoveryAmbiguityError",
+    "InfoSysDiscoveryError",
     "InfoSysError",
     "InfoSysLimitError",
     "InfoSysLimits",
@@ -33,7 +44,10 @@ __all__ = [
     "UnsafeArchiveError",
     "XMLDepthLimitError",
     "TopicHierarchyExtractionError",
+    "default_catalog_root",
+    "discover_infosys_archives",
     "extract_topic_hierarchies",
     "extract_topic_hierarchy",
     "read_infosys",
+    "select_infosys_archive",
 ]
