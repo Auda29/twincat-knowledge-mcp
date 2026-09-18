@@ -357,6 +357,15 @@ def test_limits_reject_bool_and_above_hard_max(tmp_path: Path, name: str) -> Non
         read_topic_export(tmp_path / "missing.jsonl", **kwargs)  # type: ignore[arg-type]
 
 
+def test_hard_maximum_supports_full_local_infosys_scale(tmp_path: Path) -> None:
+    """A full locally installed InfoSys export needs several hundred MiB."""
+    assert topic_export.MAX_TOTAL_BYTES == 512 * 1024 * 1024
+    path = tmp_path / "scale.jsonl"
+    write_topic_export(path, [_topic()], max_total_bytes=topic_export.MAX_TOTAL_BYTES)
+    reloaded = read_topic_export(path, max_total_bytes=topic_export.MAX_TOTAL_BYTES)
+    assert reloaded == (_topic(),)
+
+
 def test_reader_has_no_side_effects(tmp_path: Path) -> None:
     path = tmp_path / "topics.jsonl"
     write_topic_export(path, [_topic()])

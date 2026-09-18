@@ -274,7 +274,7 @@ def test_bypassed_invalid_manifest_is_revalidated() -> None:
         ("max_record_bytes", {"max_record_bytes": True}),
         ("max_topics", {"max_topics": 100_001}),
         ("max_sections", {"max_sections": 1_000_001}),
-        ("max_total_bytes", {"max_total_bytes": 67_108_865}),
+        ("max_total_bytes", {"max_total_bytes": 536_870_913}),
         ("max_record_bytes", {"max_record_bytes": 1_048_577}),
     ],
 )
@@ -284,6 +284,19 @@ def test_limits_are_strict_and_have_fixed_hard_maxima(
     topic = _normalized_topics()[0]
     with pytest.raises(TopicCorpusBoundsError, match="topic corpus limit exceeded"):
         validate_topic_corpus(_manifest((topic,)), (topic,), **kwargs)  # type: ignore[arg-type]
+
+
+def test_total_byte_maximum_matches_export_contract() -> None:
+    """Validation and export share one full-local-InfoSys-scale byte ceiling."""
+    from twincat_knowledge.corpus import topic_export, topic_validation
+
+    assert topic_validation.MAX_TOTAL_BYTES == topic_export.MAX_TOTAL_BYTES
+    assert topic_validation.MAX_TOTAL_BYTES == 512 * 1024 * 1024
+    topic = _normalized_topics()[0]
+    summary = validate_topic_corpus(
+        _manifest((topic,)), (topic,), max_total_bytes=536_870_912
+    )
+    assert summary.topic_count == 1
 
 
 def test_topic_consumption_is_incremental_and_stops_at_first_over_limit() -> None:

@@ -40,7 +40,7 @@ modifies, deletes, or scans the source package.
    Each source artifact is copied to an exclusive private cache file through a
    regular-file `lstat`/`fstat` check, bounded chunk reads, a cumulative count,
    and an over-limit sentinel. The copied bytes must match both descriptor size
-   and SHA-256. JSONL is capped at 64 MiB; SQLite is capped at 512 MiB.
+   and SHA-256. JSONL is capped at 512 MiB; SQLite is capped at 512 MiB.
 5. Reload the verified private JSONL with `read_topic_export`, then run
    `validate_topic_corpus`. Manifest language counts must equal the validated
    summary.

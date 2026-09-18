@@ -21,7 +21,8 @@ from .manifest import CorpusManifest
 
 MAX_TOPICS: Final = 100_000
 MAX_SECTIONS: Final = 1_000_000
-MAX_TOTAL_BYTES: Final = 67_108_864
+# Must stay aligned with topic_export.MAX_TOTAL_BYTES (full local InfoSys scale).
+MAX_TOTAL_BYTES: Final = 536_870_912
 MAX_RECORD_BYTES: Final = 1_048_576
 SUPPORTED_PACKAGE_SCHEMA: Final = "1.0"
 SUPPORTED_SOURCE_SCHEMA: Final = "1.0"

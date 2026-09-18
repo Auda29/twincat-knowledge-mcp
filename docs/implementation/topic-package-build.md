@@ -36,7 +36,7 @@ The defaults and hard maxima are inherited from the existing components:
 | option | default | hard maximum |
 | --- | ---: | ---: |
 | `max_topics` | 100,000 | 100,000 |
-| `max_total_bytes` | 67,108,864 | 67,108,864 |
+| `max_total_bytes` | 536,870,912 | 536,870,912 |
 | `max_record_bytes` | 1,048,576 | 1,048,576 |
 
 Options are positive integers; booleans and values above the maxima are
