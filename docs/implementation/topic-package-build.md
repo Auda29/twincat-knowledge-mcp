@@ -36,7 +36,7 @@ The defaults and hard maxima are inherited from the existing components:
 | option | default | hard maximum |
 | --- | ---: | ---: |
 | `max_topics` | 100,000 | 100,000 |
-| `max_total_bytes` | 67,108,864 | 67,108,864 |
+| `max_total_bytes` | 1,073,741,824 | 1,073,741,824 |
 | `max_record_bytes` | 1,048,576 | 1,048,576 |
 
 Options are positive integers; booleans and values above the maxima are
@@ -98,7 +98,7 @@ manifest-format acceptance gap. The coordinator reproduced both before fixing:
   nonblocking open where available, no-follow where available, and a descriptor
   regular-file check. Descriptor cleanup is retained on rejection.
 - JSONL hash reads stop at the original exported byte count plus a single
-  over-limit sentinel byte; SQLite hash reads have a separate 512 MiB ceiling
+  over-limit sentinel byte; SQLite hash reads have a separate 2 GiB ceiling
   (`MAX_INDEX_BYTES`). Both fstat preflight and incremental growth are checked.
   This is a hashing/publication limit, not a disk quota during SQLite creation
   or a deadline for network-filesystem I/O. A build exceeding it fails without
