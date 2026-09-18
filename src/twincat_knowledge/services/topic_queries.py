@@ -528,13 +528,35 @@ class TopicQueryService:
             language = None if request.filters is None else request.filters.language
             if language == "any":
                 language = None
+            # The pinned index is immutable within a generation, so the mode
+            # is a stable function of (query, language): every page of one
+            # query recomputes the same decision without cursor state.
+            search_mode: Literal["all_terms", "any_term"] = "all_terms"
+            search_warnings: tuple[str, ...] = ()
+            if len(request.query.split()) > 1:
+                probe = self._loaded.index.search(
+                    request.query,
+                    language=language,
+                    source_snapshot_id=None,
+                    limit=1,
+                    offset=0,
+                )
+                if not probe:
+                    search_mode = "any_term"
+                    search_warnings = (
+                        "no topic matched every term; results are ranked "
+                        "by any-term relevance",
+                    )
             topics: tuple[Topic, ...] = self._loaded.index.search(
                 request.query,
                 language=language,
                 source_snapshot_id=None,
                 limit=request.limit,
                 offset=position,
+                mode=search_mode,
             )
+            if not topics and search_mode == "any_term" and position == 0:
+                search_warnings = ()
             lookahead: tuple[Topic, ...] = ()
             if (
                 len(topics) == request.limit
@@ -546,6 +568,7 @@ class TopicQueryService:
                     source_snapshot_id=None,
                     limit=1,
                     offset=position + request.limit,
+                    mode=search_mode,
                 )
             has_more_at_limit = bool(lookahead)
             prefix_items: list[SearchItem] = []
@@ -598,6 +621,7 @@ class TopicQueryService:
                         applied_filters=request.filters,
                     ),
                     sources=candidate_sources,
+                    warnings=search_warnings,
                     truncated=candidate_has_more,
                     next_cursor=candidate_cursor,
                 )
@@ -622,6 +646,7 @@ class TopicQueryService:
                     applied_filters=request.filters,
                 ),
                 sources=_unique_sources(sources),
+                warnings=search_warnings if items else (),
                 truncated=has_more,
                 next_cursor=next_cursor,
             )

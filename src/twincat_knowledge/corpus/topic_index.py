@@ -10,7 +10,7 @@ from contextlib import AbstractContextManager, contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import TracebackType
-from typing import Self
+from typing import Literal, Self
 
 from twincat_knowledge.domain.topics import Topic
 
@@ -458,9 +458,12 @@ class TopicIndex:
         source_snapshot_id: str | None = None,
         limit: int = MAX_SEARCH_LIMIT,
         offset: int = 0,
+        mode: Literal["all_terms", "any_term"] = "all_terms",
     ) -> tuple[Topic, ...]:
         if not isinstance(query, str):
             raise TopicIndexValidationError("query must be a string")
+        if mode not in ("all_terms", "any_term"):
+            raise TopicIndexValidationError("mode must be 'all_terms' or 'any_term'")
         if _utf8_size(query) > MAX_QUERY_BYTES:
             raise TopicIndexBoundsError(
                 f"query exceeds the {MAX_QUERY_BYTES}-byte UTF-8 limit"
@@ -489,9 +492,21 @@ class TopicIndex:
                 filters.append(f"t.{column} = ?")
                 values.append(value)
         connection = self._connection_or_raise()
-        if not query.strip():
+        # Whitespace-separated words are independent quoted phrases, combined
+        # with AND (all_terms) or OR (any_term).  Quoting keeps every FTS5
+        # operator and syntax character in the user text literal; a single
+        # whitespace-free identifier stays one exact adjacency phrase.  Words
+        # without any token character would be empty phrases that can never
+        # match, so they are dropped instead of vetoing the whole query.
+        terms = [
+            term
+            for term in query.split()
+            if any(character.isalnum() for character in term)
+        ]
+        if not terms:
             return ()
-        literal = '"' + query.replace('"', '""') + '"'
+        joiner = " AND " if mode == "all_terms" else " OR "
+        literal = joiner.join('"' + term.replace('"', '""') + '"' for term in terms)
         where = " AND ".join(filters)
         if where:
             where = " AND " + where

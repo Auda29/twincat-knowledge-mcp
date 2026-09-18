@@ -391,3 +391,82 @@ def test_oversized_section_is_explicit_error(tmp_path: Path) -> None:
     assert response.status == "error"
     assert any("oversized" in warning.lower() for warning in response.warnings)
     loaded.close()
+
+
+def _fallback_service(tmp_path: Path) -> tuple[TopicQueryService, object]:
+    def _sectioned(locator: str, title: str, text: str) -> Topic:
+        topic_id = canonical_topic_id("synthetic", "source-1", "en", locator)
+        base = _topic(locator, title)
+        sid = canonical_section_id(topic_id, 0)
+        section = Section(
+            id=sid,
+            kind="paragraph",
+            text=text,
+            source=base.source.model_copy(update={"section_id": sid}),
+        )
+        return base.model_copy(update={"sections": (section,)})
+
+    topics = (
+        _sectioned(
+            "motion/en/clock.html",
+            "Clock",
+            "The distributed clock chapter. Clocks are synchronized here.",
+        ),
+        _sectioned(
+            "motion/en/systems.html",
+            "Systems",
+            "Distributed systems overview.",
+        ),
+    )
+    result = build_topic_package(tmp_path / "package", _manifest(topics), topics)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    loaded = load_topic_package(
+        result.path, expected_manifest_sha256=result.manifest_sha256, cache_dir=cache
+    )
+    return TopicQueryService(loaded), loaded
+
+
+def test_multi_term_search_matches_without_adjacency(tmp_path: Path) -> None:
+    service, loaded = _fallback_service(tmp_path)
+    # The words never occur adjacently; the document still matches them all.
+    response = service.search(SearchInput(query="synchronized distributed clocks"))
+    assert response.status == "ok"
+    assert response.data is not None
+    assert [item.title for item in response.data.items] == ["Clock"]
+    assert response.warnings == ()
+    loaded.close()
+
+
+def test_search_falls_back_to_any_term_with_explicit_warning(
+    tmp_path: Path,
+) -> None:
+    service, loaded = _fallback_service(tmp_path)
+
+    response = service.search(
+        SearchInput(query="distributed clocks missingword", limit=1)
+    )
+    assert response.status == "ok"
+    assert response.data is not None
+    assert [item.title for item in response.data.items] == ["Clock"]
+    assert any("every term" in warning for warning in response.warnings)
+    assert response.data.has_more is True
+    assert response.next_cursor is not None
+
+    page2 = service.search(
+        SearchInput(
+            query="distributed clocks missingword",
+            limit=1,
+            cursor=response.next_cursor,
+        )
+    )
+    assert page2.status == "ok"
+    assert page2.data is not None
+    assert [item.title for item in page2.data.items] == ["Systems"]
+    assert any("every term" in warning for warning in page2.warnings)
+
+    # A query matching nothing in either mode stays an honest not_found.
+    nothing = service.search(SearchInput(query="entirely absentwords"))
+    assert nothing.status == "not_found"
+    assert nothing.warnings == ()
+    loaded.close()

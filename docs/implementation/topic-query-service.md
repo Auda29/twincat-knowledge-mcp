@@ -61,8 +61,14 @@ entity indexes.
 
 Search accepts `query` of 1--512 Unicode characters, rejects NUL, and enforces a
 2048-byte UTF-8 ceiling (the index ceiling was raised from 512 bytes so the
-character contract admits 512 four-byte characters). The index receives the
-query as a literal quoted FTS phrase. Search pages are 1--20 items, ordered by
+character contract admits 512 four-byte characters). The index receives each
+whitespace-separated word as its own quoted literal FTS phrase, combined with
+AND. When a multi-word query matches nothing, the service retries the same
+query with OR (any-term) ranking and adds an explicit warning to every page of
+that result; the pinned index is immutable per generation, so each page of one
+query deterministically recomputes the same mode without cursor state. A query
+matching nothing in either mode stays `not_found`. Search pages are 1--20
+items, ordered by
 the existing deterministic BM25/ID ordering. `total` remains `null`: the
 service does not perform an unbounded count. `has_more` is established by a
 separate one-row lookahead (including for a page of 20), and a result item

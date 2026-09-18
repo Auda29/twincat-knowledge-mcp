@@ -16,15 +16,17 @@ virtual table in a temporary in-memory database. There is no search fallback.
 - `with TopicIndex(path) as index: ...`
 - `index.get_topic(topic_id) -> Topic | None`
 - `index.search(query, *, language=None, library=None, source_snapshot_id=None,
-  limit=20, offset=0) -> tuple[Topic, ...]`
+  limit=20, offset=0, mode="all_terms") -> tuple[Topic, ...]`
 
 Index schema version is 1. Normalized Topic JSON preserves metadata, ordered code,
 paragraphs, warnings, tables, original IDs and section provenance. Search text is
 the title followed by section text/code/table cells; metadata and links are not
 included in the search text. FTS5 uses its default unicode61 tokenizer and BM25,
-with Topic ID as a deterministic tie-breaker. Query strings are quoted as literal
-FTS phrases; arbitrary FTS operators and SQL are not passed through. Multiword
-queries currently mean a phrase, not an implicit bag-of-words AND query.
+with Topic ID as a deterministic tie-breaker. Whitespace-separated query words
+become independent quoted phrases combined with AND (`mode="all_terms"`,
+default) or OR (`mode="any_term"`); a whitespace-free identifier remains one
+exact adjacency phrase. Every word is quoted, so arbitrary FTS operators and
+SQL are not passed through, and an unknown mode is rejected.
 
 Language, library and source-snapshot filters use bound values. Missing IDs return
 `None`, never another generation. Empty queries return no results. The component
