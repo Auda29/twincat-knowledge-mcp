@@ -39,7 +39,7 @@ The defaults and hard maxima are:
 | option | default and hard maximum |
 | --- | ---: |
 | `max_topics` | 100,000 records |
-| `max_total_bytes` | 512 MiB, including LF bytes |
+| `max_total_bytes` | 1 GiB, including LF bytes |
 | `max_record_bytes` | 1 MiB of JSON payload bytes, excluding its optional LF |
 
 Options must be real positive integers (booleans are rejected) and cannot exceed

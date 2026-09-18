@@ -51,7 +51,8 @@ from .topic_validation import (
 FORMAT_VERSION: Final = "1.0"
 INDEX_FORMAT: Final = "sqlite-fts5"
 INDEX_VERSION: Final = SCHEMA_VERSION
-MAX_INDEX_BYTES: Final = 512 * 1024 * 1024
+# Must exceed the JSONL ceiling: FTS5 stores topic JSON plus search text.
+MAX_INDEX_BYTES: Final = 2 * 1024 * 1024 * 1024
 MAX_MANIFEST_BYTES: Final = 16 * 1024 * 1024
 _SHA256 = Annotated[StrictStr, Field(pattern=r"^[0-9a-f]{64}$")]
 _NONNEGATIVE = Annotated[int, Field(strict=True, ge=0)]

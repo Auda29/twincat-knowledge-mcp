@@ -274,7 +274,7 @@ def test_bypassed_invalid_manifest_is_revalidated() -> None:
         ("max_record_bytes", {"max_record_bytes": True}),
         ("max_topics", {"max_topics": 100_001}),
         ("max_sections", {"max_sections": 1_000_001}),
-        ("max_total_bytes", {"max_total_bytes": 536_870_913}),
+        ("max_total_bytes", {"max_total_bytes": 1_073_741_825}),
         ("max_record_bytes", {"max_record_bytes": 1_048_577}),
     ],
 )
@@ -291,10 +291,10 @@ def test_total_byte_maximum_matches_export_contract() -> None:
     from twincat_knowledge.corpus import topic_export, topic_validation
 
     assert topic_validation.MAX_TOTAL_BYTES == topic_export.MAX_TOTAL_BYTES
-    assert topic_validation.MAX_TOTAL_BYTES == 512 * 1024 * 1024
+    assert topic_validation.MAX_TOTAL_BYTES == 1024 * 1024 * 1024
     topic = _normalized_topics()[0]
     summary = validate_topic_corpus(
-        _manifest((topic,)), (topic,), max_total_bytes=536_870_912
+        _manifest((topic,)), (topic,), max_total_bytes=1_073_741_824
     )
     assert summary.topic_count == 1
 

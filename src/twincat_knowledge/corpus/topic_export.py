@@ -14,9 +14,9 @@ from typing import BinaryIO, Final
 from twincat_knowledge.domain.topics import Topic
 
 MAX_TOPICS: Final = 100_000
-# Sized for a full locally installed InfoSys corpus (measured ~390 MiB of
-# normalized JSONL); matches the 512 MiB package index ceiling.
-MAX_TOTAL_BYTES: Final = 512 * 1024 * 1024
+# Sized for a full locally installed InfoSys locale: one real EN install
+# measured 623 MiB of normalized JSONL across 49,911 topics.
+MAX_TOTAL_BYTES: Final = 1024 * 1024 * 1024
 MAX_RECORD_BYTES: Final = 1024 * 1024
 _UTF8_BOM: Final = b"\xef\xbb\xbf"
 

@@ -26,7 +26,7 @@ above these fixed hard maxima are rejected:
 |---|---:|
 | `max_topics` | 100,000 |
 | `max_sections` | 1,000,000 |
-| `max_total_bytes` | 536,870,912 |
+| `max_total_bytes` | 1,073,741,824 |
 | `max_record_bytes` | 1,048,576 |
 
 Record and total byte limits count the UTF-8 bytes of each compact Pydantic
