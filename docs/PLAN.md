@@ -10,6 +10,14 @@
 
 **Stand:** 2026-09-10. Ausschließlich Planung, keine MCP-Implementierung. Privates Repository: `Auda29/-twincat-knowledge-mcp`.
 
+> **Umsetzungsstand 2026-09-18:** Die Phasen tragen unten datierte
+> Statuszeilen und die Definition of Done in Abschnitt 15 datierte Haken.
+> Maßstab sind die Merge-Nachweise der PRs #3–#18 sowie #22, #24 und #25
+> einschließlich des verifizierten realen InfoSys-Laufs
+> ([Ingest-Vertrag](implementation/infosys-ingest-cli.md)). Ein Haken
+> bezeichnet den implementierten Topic-Umfang, keine Produkt- oder
+> Release-Abnahme.
+
 **GitHub-Status:** Das vom Nutzer angelegte Repository `Auda29/-twincat-knowledge-mcp` wurde per API als privat und beschreibbar verifiziert. Der führende Bindestrich gehört zum Repository-Namen. Dieser Commit liefert ausschließlich Planungsdokumente.
 
 ---
@@ -212,7 +220,7 @@ Checksums erkennen Beschädigung, beweisen aber nicht die Vertrauenswürdigkeit 
 
 ## 6. Tool-Vertrag: genau 15 Tools
 
-Alle folgenden Namen sind verbindliche Planungsnamen. Der Server registriert genau diese 15 fachlichen Tools. MCP-Protokollmethoden wie `server/discover` zählen nicht dazu. Betreiber-CLI-Befehle sind keine Agent-Tools.
+Alle folgenden Namen sind verbindliche Planungsnamen. Der Server registriert genau diese 15 fachlichen Tools. ✅ markiert die vier seit 2026-09-18 implementierten Tools; die übrigen elf sind offen. MCP-Protokollmethoden wie `server/discover` zählen nicht dazu. Betreiber-CLI-Befehle sind keine Agent-Tools.
 
 ### 6.1 Gemeinsame Regeln
 
@@ -235,9 +243,9 @@ Alle folgenden Namen sind verbindliche Planungsnamen. Der Server registriert gen
 
 | Nr. | Tool | Eingabe | Ausgabe und Einsatzgrenze |
 |---:|---|---|---|
-| 1 | `tc_search` | `query`, optionale `kinds`, `filters`, `limit`, `cursor` | Übergreifende Suche nach Konzepten und Dokumentation. Liefert Entity-ID, Titel, Snippet, Trefferart, angewendete Filter und Belege; keine generierte Gesamterklärung. |
-| 2 | `tc_get_topic` | `topic_id`, optionale `section_ids`, `cursor` | Dokumentseite oder ausgewählte Abschnitte einschließlich Tabellen, Warnungen und Quellenankern. Keine beliebige URL als Ersatz für die ID. |
-| 3 | `tc_browse_topics` | optionale `parent_topic_id`, `filters`, `limit`, `cursor` | Inhaltsbaum: Wurzeln oder direkte Kinder mit Breadcrumbs. Kein rekursiver Vollbestand in einem Aufruf. |
+| 1 | ✅ `tc_search` | `query`, optionale `kinds`, `filters`, `limit`, `cursor` | Übergreifende Suche nach Konzepten und Dokumentation. Liefert Entity-ID, Titel, Snippet, Trefferart, angewendete Filter und Belege; keine generierte Gesamterklärung. |
+| 2 | ✅ `tc_get_topic` | `topic_id`, optionale `section_ids`, `cursor` | Dokumentseite oder ausgewählte Abschnitte einschließlich Tabellen, Warnungen und Quellenankern. Keine beliebige URL als Ersatz für die ID. |
+| 3 | ✅ `tc_browse_topics` | optionale `parent_topic_id`, `filters`, `limit`, `cursor` | Inhaltsbaum: Wurzeln oder direkte Kinder mit Breadcrumbs. Kein rekursiver Vollbestand in einem Aufruf. |
 | 4 | `tc_find_symbols` | `query`, optional `match` (`exact`, `prefix`, `text`), `kind`, `filters`, `limit`, `cursor` | Symbolkandidaten mit Library, Namespace, Art und Versionshinweisen. Bei `exact` kein stilles semantisches Fallback. |
 | 5 | `tc_get_symbol` | `symbol_id`, optionale `sections` (`declaration`, `parameters`, `behavior`, `examples`), `cursor` | Dokumentierte Deklaration, Ein-/Ausgänge, Rückgabe, Verhalten und Beispiel-IDs. Fehlende Felder/Versionsbelege ausdrücklich kennzeichnen. |
 | 6 | `tc_compare_symbols` | `symbol_ids` mit 2–4 IDs, optionale `fields` | Quellengebundene Gegenüberstellung dokumentierter Eigenschaften. Keine erfundene „A ist sicherer als B“-Bewertung; nicht vergleichbare oder fehlende Felder markieren. |
@@ -249,7 +257,7 @@ Alle folgenden Namen sind verbindliche Planungsnamen. Der Server registriert gen
 | 12 | `tc_search_examples` | `query`, optionale `symbol_id`, `code_language`, `filters`, `limit`, `cursor` | Vorhandene dokumentierte Beispiele mit Voraussetzungen, Beschreibung und Example-ID. Kein generierter Code. |
 | 13 | `tc_get_example` | `example_id`, optionaler `cursor` | Unveränderter Beispielcode, Begleittext, Voraussetzungen und Quelle. Große Beispiele über geordnete Segmente mit Vollständigkeitsmarkierung, niemals als vollständig vortäuschen. |
 | 14 | `tc_get_related` | `entity_id`, optionale `relation_types`, `limit`, `cursor` | Direkte belegte Beziehungen, etwa Bibliothek, verwandte Symbole, Beschreibung oder Beispiel. Maximal eine Kante pro Aufruf, keine freie Graphabfrage. |
-| 15 | `tc_get_corpus_status` | optionale `snapshot_id`, `detail` (`summary`, `coverage`), `limit`, `cursor` | Aktive Snapshots, Importbilanz, Kategorie-/Sprachabdeckung, Quellenstand, Warnungen, verfügbare Suchmodi. Keine Secrets, absoluten Pfade, Benutzerkonten oder internen Netzwerkadressen. |
+| 15 | ✅ `tc_get_corpus_status` | optionale `snapshot_id`, `detail` (`summary`, `coverage`), `limit`, `cursor` | Aktive Snapshots, Importbilanz, Kategorie-/Sprachabdeckung, Quellenstand, Warnungen, verfügbare Suchmodi. Keine Secrets, absoluten Pfade, Benutzerkonten oder internen Netzwerkadressen. |
 
 ### 6.3 Auswahlhilfe für den Agenten
 
@@ -403,6 +411,14 @@ twincat-knowledge serve --transport streamable-http --config <config.toml>
 twincat-knowledge config print-client --client <hermes|codex|claude> --config <config.toml>
 ```
 
+**Stand 2026-09-18:** Implementiert sind `--version`, `init`, `doctor`,
+`ingest` (`--format infosys-mshc` mit lokaler InfoSys-Discovery),
+`corpus validate/activate/list/rollback`, `serve --transport stdio` und
+`config print-client` für `claude` und `codex`; zusätzlich existiert das
+metadatenbasierte `inspect-infosys`. Offen: `serve --transport
+streamable-http`, `print-client --client hermes` und weitere
+`ingest`-Formate (z. B. ESI).
+
 `init` überschreibt vorhandene Konfiguration nicht. `doctor` prüft Python/SDK, FTS5, Paketformat, Rechte, Coverage, gewählten Transport und Auth-Konfiguration; JSON-Modus für Support. Geheimnisse nie ausgeben.
 
 `config print-client` gibt nur den benötigten Konfigurationsblock aus. Agentdateien werden nicht automatisch verändert. CLI-Konfiguration folgt einer dokumentierten Priorität: explizite Flags → eigene `TCK_*`-Variablen → TOML → sichere Defaults. Nicht auf implizites Einlesen alter `MCP_*`-Variablen durch das SDK bauen.[11]
@@ -544,6 +560,8 @@ Die genannten PASS-Bedingungen sind künftige Abnahmekriterien, keine bereits au
 
 ### Phase 0 — Repository, Rechte, reale Machbarkeit
 
+**Stand 2026-09-18: teilweise.** Repository, Planungsdokumente und die PowerShell-Probe existieren; die reale Extraktion ist inzwischen am installierten Bestand nachgewiesen. `docs/adr/` und `docs/data-access.md` fehlen weiterhin.
+
 **Dateien:** `README.md`, `docs/PLAN.md`, `docs/data-access.md`, `docs/adr/0001-scope.md`, `docs/adr/0002-mcp-sdk.md`.
 
 - GitHub-Erstellungs-/Schreibrecht klären; Repository explizit privat erstellen und per API nachlesen.
@@ -556,6 +574,8 @@ Die genannten PASS-Bedingungen sind künftige Abnahmekriterien, keine bereits au
 **Gate:** Reale Extraktion und moderner Roundtrip sind möglich; Lizenz-/Datenzugang ist freigegeben. Wenn nicht, Blocker benennen, keine Decoder- oder API-Annahmen als bewiesen übernehmen.
 
 ### Phase 1 — Installierbarer technischer Anfang
+
+**Stand 2026-09-18: ✅ abgeschlossen** (PR #1; die vier genannten Testfälle existieren nahezu namensgleich, CI auf Windows/Linux).
 
 **Dateien:** `pyproject.toml`, `uv.lock`, `src/twincat_knowledge/{__init__,__main__,cli,config}.py`, `tests/e2e/test_installation.py`, `.github/workflows/ci.yml`.
 
@@ -572,6 +592,8 @@ Testfälle nacheinander:
 
 ### Phase 2 — Herkunftsmodell und Parser-Sicherheit
 
+**Stand 2026-09-18: ✅ inhaltlich abgeschlossen im Topic-Umfang** (PRs #1/#3/#4; Traversal-/XXE-/Archiv-Härtung in `tests/security/`). Dateizuschnitt weicht vom Plan ab; ESI-Verarbeitung fehlt.
+
 **Dateien:** `domain/{models,provenance,errors}.py`, `security/{paths,limits}.py`, `ingest/{inventory,html}.py`, `tests/unit/test_provenance.py`, `tests/security/test_import_inputs.py`.
 
 - Fehlende Versionsangaben bleiben unbekannt.
@@ -584,6 +606,8 @@ Testfälle nacheinander:
 **Gate:** Malformed Input führt zu kontrollierten Fehlern, nie zu externem Fetch oder Dateizugriff außerhalb freigegebener Pfade.
 
 ### Phase 3 — Echter InfoSys-Import und Paketvalidierung
+
+**Stand 2026-09-18: ✅ im Wesentlichen abgeschlossen** (PRs #3–#10 und #22). Der reale InfoSys-Durchstich ist am installierten `BKINFOSYS3_VS_100_EN-US.47.mshc` nachgewiesen: 49.911 Topics über `ingest` → `validate` → `activate` → `serve` ([Nachweis](implementation/infosys-ingest-cli.md)). Offen: `schemas/corpus-manifest.schema.json`, ESI, DE-Locale-Lauf.
 
 **Dateien:** `ingest/{infosys,normalize,validate}.py`, `corpus/{manifest,store}.py`, `schemas/corpus-manifest.schema.json`, `tests/integration/test_infosys_import.py`, `tests/unit/test_manifest.py`.
 
@@ -598,6 +622,8 @@ Testfälle nacheinander:
 
 ### Phase 4 — Ein vollständiger Suchpfad
 
+**Stand 2026-09-18: ✅ abgeschlossen** (PRs #13–#15, #25). Die drei Kern-Tools beantworten reale Fragen mit Belegen über MCP am realen Korpus; Mehrwortsuche seit #25 termbasiert mit Any-Term-Fallback.
+
 **Dateien:** `retrieval/{exact,fulltext}.py`, `services/topics.py`, `mcp/{server,tools,results}.py`, `tests/contract/test_modern_stdio.py`, `tests/integration/test_search.py`.
 
 - Zuerst `tc_search`, `tc_get_topic`, `tc_get_corpus_status` vertikal implementieren.
@@ -611,6 +637,8 @@ Testfälle nacheinander:
 **Gate:** Installiertes Wheel beantwortet reale Fragen mit Belegen über MCP. Dies ist ein Zwischenstand mit drei Tools, noch nicht das vollständige Produkt.
 
 ### Phase 5 — Alle 15 Tool-Verträge vervollständigen
+
+**Stand 2026-09-18: teilweise (4 von 15).** `tc_browse_topics` ist seit PR #24 angebunden (Schritt 1 dieser Phase). Symbole, Bibliotheken, Geräte, Fehler, Beispiele, Vergleich und Relationen sind offen.
 
 **Dateien:** `services/{symbols,libraries,devices,errors,examples,status}.py`, `retrieval/relations.py`, `ingest/esi.py`, `mcp/tools.py`, `schemas/tool-contracts.json`, `tests/contract/test_tool_catalog.py`, `tests/contract/test_tool_behavior.py`.
 
@@ -632,6 +660,8 @@ Implementierungsreihenfolge in einzelnen Tests/Commits:
 
 ### Phase 6 — Updates, Cursor und Versionskonflikte
 
+**Stand 2026-09-18: ✅ weitgehend abgeschlossen im Topic-Umfang** (PRs #11–#13; installierter paralleler Aktivierungs-/Rollback-Lifecycle, generationsgebundene Cursor). Snapshotwechsel erfordert Server-Neustart; `corpus/migrations.py` existiert nicht.
+
 **Dateien:** `corpus/{activation,migrations}.py`, `tests/integration/test_snapshot_lifecycle.py`, `tests/contract/test_pagination.py`.
 
 - Snapshotwechsel verändert laufende Ergebnisse nicht.
@@ -646,6 +676,8 @@ Implementierungsreihenfolge in einzelnen Tests/Commits:
 **Gate:** Wiederholbare Suche und sichere Aktualisierung unter Parallelzugriff.
 
 ### Phase 7 — Modernes HTTP und Zugriffsschutz
+
+**Stand 2026-09-18: offen.** `serve` akzeptiert ausschließlich stdio.
 
 **Dateien:** `mcp/http.py`, `security/auth.py`, `tests/contract/test_modern_http.py`, `tests/security/test_http_auth.py`, `tests/security/test_http_origin.py`, `examples/config.http.toml`.
 
@@ -663,6 +695,8 @@ Implementierungsreihenfolge in einzelnen Tests/Commits:
 
 ### Phase 8 — Retrieval-Evaluation und optionale Semantik
 
+**Stand 2026-09-18: offen.** Eine informelle 23-Fragen-Probe am realen Korpus (2026-09-18) motivierte den Suchfix #25, ersetzt aber weder Testmenge noch Holdout-Abnahme dieser Phase.
+
 **Dateien:** `eval/{questions.jsonl,evaluate.py,README.md}`, `tests/unit/test_evaluation.py`, optional `retrieval/hybrid.py`.
 
 - Testmenge erstellen, Quellen manuell prüfen, Entwicklungs-/Holdout-Split einfrieren.
@@ -676,6 +710,8 @@ Implementierungsreihenfolge in einzelnen Tests/Commits:
 **Gate:** Qualitätsziele aus Abschnitt 14 erfüllt. Ein Hybrid-Experiment ist optional, die Evaluation nicht.
 
 ### Phase 9 — Hosttests und fertig installierbares Release
+
+**Stand 2026-09-18: offen.** Keine Releases, keine formalen Hosttests, Lizenz unentschieden.
 
 **Dateien:** `examples/clients/*`, `scripts/{smoke_installed,validate_release}.py`, `tests/e2e/test_installed_mcp.py`, `docs/{installation,tools,compatibility,operations,security}.md`, `packaging/*`, `.github/workflows/release.yml`.
 
@@ -743,21 +779,21 @@ Gleiches Modell, Aufgaben, Budget und Bewertungsraster; variable Läufe wiederho
 
 ## 15. Definition of Done für v1.0
 
-- [ ] Privates Repository besteht; Sichtbarkeit und veröffentlichter Commit wurden remote zurückgelesen.
+- [x] Privates Repository besteht; Sichtbarkeit und veröffentlichter Commit wurden remote zurückgelesen. *(2026-09-18 erneut geprüft: `private`.)*
 - [ ] Bezugs-/Nutzungsrechte für reale Quellen und Testdaten sind geklärt.
-- [ ] Mindestens ein realer InfoSys-Importweg und die zugesagte Hardwarequelle funktionieren.
-- [ ] Coverage ist inventarbasiert und zeigt Lücken statt pauschaler Vollständigkeitsbehauptungen.
-- [ ] Genau 15 Tools sind vollständig implementiert; keine Stubs oder nur synthetisch belegten Fachfunktionen.
-- [ ] Moderne stdio- und HTTP-Konformität für `2026-07-28` ist separat geprüft.
+- [ ] Mindestens ein realer InfoSys-Importweg und die zugesagte Hardwarequelle funktionieren. *(Importweg seit 2026-09-18 real nachgewiesen; Hardware-/ESI-Quelle offen.)*
+- [ ] Coverage ist inventarbasiert und zeigt Lücken statt pauschaler Vollständigkeitsbehauptungen. *(Inventarbilanz je Paket vorhanden; Coverage je Produktfamilie fehlt.)*
+- [ ] Genau 15 Tools sind vollständig implementiert; keine Stubs oder nur synthetisch belegten Fachfunktionen. *(4 von 15, real belegt; keine Stubs.)*
+- [ ] Moderne stdio- und HTTP-Konformität für `2026-07-28` ist separat geprüft. *(stdio ✅ per Contract-Tests; HTTP offen.)*
 - [ ] Optional angebotene Legacy-Unterstützung wurde separat geprüft.
-- [ ] Read-only-/Offline-Grenze des Wissenskerns ist technisch getestet.
+- [x] Read-only-/Offline-Grenze des Wissenskerns ist technisch getestet. *(Im implementierten Topic-Umfang: Read-only-Index, keine Netzwerkzugriffe, Security-Regressionen.)*
 - [ ] HTTP-Authentifizierung, TLS-Betrieb, Origin/Host, Limits und Token-Grenzen sind geprüft.
-- [ ] Quellen, Sprache, Snapshot, Gültigkeit und Mehrdeutigkeit sind in Ausgaben nachvollziehbar.
-- [ ] Snapshot-Update/Rollback und Pagination funktionieren unter Parallelzugriff.
-- [ ] Installiertes Release-Wheel funktioniert auf Windows/Linux ohne Source-Checkout oder TwinCAT.
+- [x] Quellen, Sprache, Snapshot, Gültigkeit und Mehrdeutigkeit sind in Ausgaben nachvollziehbar. *(Im implementierten Topic-Umfang: SourceCitations, snapshot_ids, Warnungen.)*
+- [x] Snapshot-Update/Rollback und Pagination funktionieren unter Parallelzugriff. *(Installierte parallele Lifecycle-Tests; Wechsel erfordert Neustart.)*
+- [ ] Installiertes Release-Wheel funktioniert auf Windows/Linux ohne Source-Checkout oder TwinCAT. *(Wheel-/sdist-Installationstests laufen in CI auf beiden Plattformen; ein Release-Artefakt existiert nicht.)*
 - [ ] Alle beworbenen Hosts sind live getestet; tatsächliche Wire-Revision ist dokumentiert.
-- [ ] Retrieval-Holdout und Negativfälle erfüllen die beschlossenen Qualitätsziele.
-- [ ] Installations-, Import-, Betriebs-, Upgrade- und Deinstallationsanleitung sind praktisch ausgeführt.
+- [ ] Retrieval-Holdout und Negativfälle erfüllen die beschlossenen Qualitätsziele. *(Nur informelle 23-Fragen-Probe vom 2026-09-18.)*
+- [ ] Installations-, Import-, Betriebs-, Upgrade- und Deinstallationsanleitung sind praktisch ausgeführt. *(Installation, Import und Betrieb real ausgeführt; Upgrade/Deinstallation offen.)*
 - [ ] Private Releases enthalten nur eigene/berechtigt verteilbare Softwareartefakte; Checksums/SBOM und Release-Readback liegen vor.
 
 ## 16. Offene Entscheidungen und Risiken
