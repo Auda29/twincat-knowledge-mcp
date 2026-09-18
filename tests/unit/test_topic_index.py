@@ -441,3 +441,83 @@ def test_iter_topics_rejects_oversized_payload_before_json_parse(tmp_path: Path)
         with pytest.raises(TopicIndexValidationError, match="payload"):
             with index.iter_topics() as stream:
                 tuple(stream)
+
+
+def test_multi_word_query_matches_terms_anywhere_in_the_document(
+    tmp_path: Path,
+) -> None:
+    """Words are combined per term, not as one exact adjacent phrase."""
+    path = tmp_path / "terms.sqlite"
+    create_topic_index(path, [_topic()])
+
+    with TopicIndex(path) as index:
+        # 'axis' (paragraph), 'velocity' (table), 'moveabsolute' (code) never
+        # occur adjacently, yet all occur in the same document.
+        assert len(index.search("axis velocity moveabsolute")) == 1
+        assert len(index.search("Axis  VELOCITY")) == 1
+        assert index.search("axis unrelatedterm") == ()
+
+
+def test_any_term_mode_ranks_partial_matches(tmp_path: Path) -> None:
+    path = tmp_path / "modes.sqlite"
+    create_topic_index(path, [_topic()])
+
+    with TopicIndex(path) as index:
+        assert index.search("axis unrelatedterm") == ()
+        found = index.search("axis unrelatedterm", mode="any_term")
+        assert len(found) == 1
+        with pytest.raises(TopicIndexValidationError):
+            index.search("axis", mode="fuzzy")  # type: ignore[arg-type]
+
+
+def test_query_syntax_characters_stay_literal_in_both_modes(
+    tmp_path: Path,
+) -> None:
+    """FTS5 operators arriving as user text must never become query syntax."""
+    path = tmp_path / "literal.sqlite"
+    create_topic_index(path, [_topic()])
+
+    with TopicIndex(path) as index:
+        for query in (
+            "title:secret OR axis",
+            "axis AND NOT axis",
+            "NEAR(axis, 2)",
+            "axis*",
+            "-axis",
+            '"axis" OR "axis"',
+            "(axis)",
+            "axis^2 {x}",
+        ):
+            for mode in ("all_terms", "any_term"):
+                index.search(query, mode=mode)  # must not raise
+        # 'OR' is a literal search word, not an operator: it appears nowhere
+        # in the document, so an all-terms search containing it finds nothing.
+        assert index.search("axis OR axis") == ()
+        assert len(index.search("axis OR axis", mode="any_term")) == 1
+
+
+def test_identifier_queries_keep_their_exact_sub_token_adjacency(
+    tmp_path: Path,
+) -> None:
+    other = _topic("topic-2", title="Absolute move table")
+    path = tmp_path / "identifiers.sqlite"
+    create_topic_index(path, [_topic(), other])
+
+    with TopicIndex(path) as index:
+        # A single whitespace-free identifier stays one adjacency phrase:
+        # 'MC_MoveAbsolute' must not decay into 'mc AND moveabsolute'.
+        found = index.search("MC_MoveAbsolute")
+        assert [topic.id for topic in found] == ["topic-1", "topic-2"]
+
+
+def test_symbol_only_words_do_not_veto_a_match(tmp_path: Path) -> None:
+    """Words without any token character never turn an AND query empty."""
+    path = tmp_path / "symbols.sqlite"
+    create_topic_index(path, [_topic()])
+
+    with TopicIndex(path) as index:
+        assert len(index.search("axis \u2603")) == 1
+        assert len(index.search("axis --- !!")) == 1
+        assert len(index.search("axis \u2603", mode="any_term")) == 1
+        # A query consisting only of token-free words matches nothing.
+        assert index.search("\u2603 ---") == ()
