@@ -58,6 +58,35 @@ def build_parser() -> argparse.ArgumentParser:
     inspect_parser.add_argument(
         "--title", help="optional exact title, case-insensitive"
     )
+    ingest_parser = commands.add_parser(
+        "ingest", help="build a topic package from an approved local InfoSys source"
+    )
+    ingest_parser.add_argument(
+        "--source",
+        type=Path,
+        help="explicit .mshc archive; default: discover the unique local install",
+    )
+    ingest_parser.add_argument("--format", required=True, choices=("infosys-mshc",))
+    ingest_parser.add_argument(
+        "--output", required=True, type=Path, help="new package directory"
+    )
+    ingest_parser.add_argument("--language", required=True, choices=("de", "en"))
+    ingest_parser.add_argument(
+        "--library",
+        action="append",
+        help="repeatable library selection; default: every library",
+    )
+    ingest_parser.add_argument(
+        "--rights-reference",
+        required=True,
+        help="operator reference for the source usage-rights decision",
+    )
+    ingest_parser.add_argument("--source-id", default="infosys-local")
+    ingest_parser.add_argument("--snapshot-id")
+    ingest_parser.add_argument(
+        "--catalog-root", type=Path, help="Help Library catalog root for discovery"
+    )
+    ingest_parser.add_argument("--json", action="store_true")
     corpus_parser = commands.add_parser("corpus", help="operator corpus commands")
     corpus_commands = corpus_parser.add_subparsers(dest="corpus_command", required=True)
     validate_parser = corpus_commands.add_parser(
@@ -177,6 +206,74 @@ def _run_inspect(
     }
     print(json.dumps(report, ensure_ascii=True))
     return 0 if topics else 2
+
+
+def _run_ingest(args: argparse.Namespace) -> int:
+    from .corpus.topic_package import TopicPackageError
+    from .ingest.infosys import InfoSysError
+    from .ingest.infosys_discovery import InfoSysDiscoveryError
+    from .ingest.infosys_ingest import ingest_infosys_package
+
+    try:
+        result = ingest_infosys_package(
+            args.output,
+            source=args.source,
+            catalog_root=args.catalog_root,
+            language=args.language,
+            libraries=args.library,
+            rights_reference=args.rights_reference,
+            source_id=args.source_id,
+            snapshot_id=args.snapshot_id,
+        )
+    except (
+        InfoSysError,
+        InfoSysDiscoveryError,
+        TopicPackageError,
+        OSError,
+        ValueError,
+    ):
+        print(
+            "ingest failed: source unresolved, unreadable, over limits, "
+            "or output unavailable",
+            file=sys.stderr,
+        )
+        return 1
+    if args.json:
+        report = {
+            "schema_version": "infosys-ingest-1",
+            "status": "ok",
+            "format": "infosys-mshc",
+            "language": args.language,
+            "snapshot_id": result.snapshot_id,
+            "manifest_sha256": result.manifest_sha256,
+            "topic_count": result.topic_count,
+            "section_count": result.section_count,
+            "language_counts": dict(result.language_counts),
+            "library_counts": {
+                name: result.library_counts[name]
+                for name in sorted(result.library_counts)
+            },
+            "inventory": {
+                "documents_total": result.inventory.documents_total,
+                "documents_imported": result.inventory.documents_imported,
+                "documents_skipped": result.inventory.documents_skipped,
+                "documents_failed": result.inventory.documents_failed,
+            },
+            "limitations": [
+                "Inventory covers the selected libraries and language only.",
+                "Integrity and structure, not source authenticity or usage rights.",
+                "Activation is a separate operator command.",
+            ],
+        }
+        print(json.dumps(report, ensure_ascii=True))
+    else:
+        print("status: ok")
+        print(f"snapshot_id: {result.snapshot_id}")
+        print(f"topics: {result.topic_count}")
+        print(f"sections: {result.section_count}")
+        print(f"libraries: {len(result.library_counts)}")
+        print(f"manifest_sha256: {result.manifest_sha256}")
+    return 0
 
 
 def _run_corpus_validate(
@@ -469,6 +566,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _run_doctor(args.config, args.json)
     if args.command == "inspect-infosys":
         return _run_inspect(args.source, args.library, args.language, args.title)
+    if args.command == "ingest":
+        return _run_ingest(args)
     if args.command == "corpus" and args.corpus_command == "validate":
         return _run_corpus_validate(
             args.package_dir, args.expected_manifest_sha256, args.cache_dir, args.json
