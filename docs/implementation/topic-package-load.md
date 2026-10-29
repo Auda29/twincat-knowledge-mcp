@@ -23,9 +23,10 @@ does not prove source authenticity, licensing, or vendor rights.
 
 The package directory and cache parent must already exist as non-symlink
 regular directories. The cache parent must be outside the package directory.
-The loader uses one private `TemporaryDirectory` below that parent and fixed
-names only: `manifest.json`, `topics.jsonl`, and `topics.sqlite`. It never
-modifies, deletes, or scans the source package.
+The loader uses one private `TemporaryDirectory` below that parent, containing
+the two verified artifacts and a versioned `.owner.json` process marker. Source
+package names remain fixed: `manifest.json`, `topics.jsonl`, and `topics.sqlite`.
+It never modifies, deletes, or scans the source package.
 
 ## Ordered verification
 
@@ -59,6 +60,13 @@ and read-only index; it does not retain the topic tuple. `close()` is
 idempotent. It closes the index before removing the private cache, including on
 Windows, and manifest/summary/index access after close raises the generic
 `TopicPackageLoadError`. The context manager closes automatically.
+
+Before creating a new private cache, the loader reclaims marked cache generations
+whose owning process has ended. This recovers interrupted copies after forced
+process termination. Live or inaccessible process owners, reused live PIDs,
+unmarked legacy directories, redirected entries and unknown files are retained.
+Only the known regular artifacts and marker are unlinked; no recursive stale
+cache deletion is used. Source packages and snapshot pointers remain unchanged.
 
 Failures use generic loader-domain messages rather than exposing source paths,
 model details, or record contents. Missing/partial files, malformed or

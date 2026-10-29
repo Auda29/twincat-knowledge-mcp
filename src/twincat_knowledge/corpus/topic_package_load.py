@@ -14,6 +14,7 @@ from typing import Final, NoReturn, Self
 from twincat_knowledge.domain.topics import Topic
 
 from .manifest import CorpusManifest
+from .topic_cache import create_topic_cache
 from .topic_export import MAX_TOTAL_BYTES, read_topic_export
 from .topic_index import MAX_TOPICS as INDEX_MAX_TOPICS
 from .topic_index import TopicIndex
@@ -402,7 +403,7 @@ def _load_topic_package(
     index: TopicIndex | None = None
     loaded: LoadedTopicPackage | None = None
     try:
-        cleanup = TemporaryDirectory(prefix=".topic-package-load-", dir=cache)
+        cleanup = create_topic_cache(cache)
         private = Path(cleanup.name)
         json_cache = private / _FIXED_JSONL
         index_cache = private / _FIXED_INDEX

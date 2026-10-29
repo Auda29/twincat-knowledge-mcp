@@ -6,6 +6,8 @@ import hashlib
 import json
 import os
 import sqlite3
+import subprocess
+import sys
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -128,6 +130,53 @@ def test_load_roundtrips_exact_and_fts_and_closes_idempotently(tmp_path: Path) -
         with pytest.raises(TopicPackageLoadError, match="closed"):
             _ = loaded.index
     assert tuple(cache.iterdir()) == ()
+
+
+@pytest.mark.parametrize("crash", [False, True])
+def test_restart_collects_crashed_cache_but_preserves_live_reader(
+    tmp_path: Path, crash: bool
+) -> None:
+    package, fingerprint = _package(tmp_path)
+    cache = tmp_path / "cache"
+    cache.mkdir()
+    script = """
+import json, os, sys
+from pathlib import Path
+from twincat_knowledge.corpus.topic_package_load import load_topic_package
+loaded = load_topic_package(Path(sys.argv[1]),
+    expected_manifest_sha256=sys.argv[2], cache_dir=Path(sys.argv[3]))
+print(json.dumps({'cache': next(Path(sys.argv[3]).iterdir()).as_posix()}), flush=True)
+if sys.stdin.readline().strip() == 'crash':
+    os._exit(23)
+loaded.close()
+"""
+    with subprocess.Popen(
+        [sys.executable, "-c", script, str(package), fingerprint, str(cache)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    ) as process:
+        assert process.stdout is not None
+        assert process.stdin is not None
+        ready = process.stdout.readline()
+        if not ready:
+            _, errors = process.communicate(timeout=10)
+            pytest.fail(errors)
+        previous = Path(json.loads(ready)["cache"])
+        assert previous.is_dir()
+        if crash:
+            process.communicate("crash\n", timeout=10)
+            assert process.returncode == 23
+        with load_topic_package(
+            package, expected_manifest_sha256=fingerprint, cache_dir=cache
+        ) as loaded:
+            assert loaded.index.get_topic(_topic().id) == _topic()
+            assert previous.exists() is not crash
+        if not crash:
+            process.communicate("close\n", timeout=10)
+            assert process.returncode == 0
+    assert list(cache.iterdir()) == []
 
 
 def test_loader_requires_exact_lowercase_manifest_fingerprint(tmp_path: Path) -> None:

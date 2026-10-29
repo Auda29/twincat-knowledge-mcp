@@ -87,9 +87,19 @@ provide a stable trusted parent and sandbox the operator process against
 malicious same-account path replacement; these checks are not a defense against
 that race or against an untrusted state owner.
 
-Unreferenced packages and cache generations are retained. Retention and
-cleanup, if later required, must be an explicit operator operation that can
-prove ownership and preserve in-flight readers.
+Unreferenced source packages are retained. Private loader caches now record
+their owning process in a versioned `.owner.json` before copying any artifacts.
+Each package load reclaims marked cache generations only after confirming that
+their owning process has ended. This also recovers from forced Windows Job
+Object termination, where Python's normal `close()`/temporary-directory cleanup
+cannot run. Normal close still removes that reader's entire private generation.
+
+Live owners, reused live PIDs, denied or unknown process status, unmarked legacy
+directories, redirected paths and unexpected contents are preserved. Recovery
+only unlinks the known regular artifact files and owner marker, then removes
+the empty directory. It never recursively deletes a directory, source package,
+snapshot pointer or unknown operator file. Legacy caches require a separate
+operator cleanup with their readers stopped.
 
 ## Verification
 

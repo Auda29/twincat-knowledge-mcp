@@ -228,7 +228,7 @@ def test_wheel_installs_without_source_checkout(
         timeout=30,
     )
     assert version.returncode == 0, version.stderr
-    assert version.stdout.strip() == "twincat-knowledge 0.1.0"
+    assert version.stdout.strip() == "twincat-knowledge 0.1.1"
     assert version.stderr == ""
 
     protocol_meta = {

@@ -15,6 +15,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.shared.exceptions import MCPError
 from pydantic import Field, StrictStr, ValidationError
 
+from twincat_knowledge import __version__
 from twincat_knowledge.domain.models import StrictModel
 from twincat_knowledge.services.query_contracts import (
     BrowseTopicsInput,
@@ -35,7 +36,7 @@ from twincat_knowledge.services.topic_queries import (
 
 PROTOCOL_VERSION = "2026-07-28"
 SERVER_NAME = "twincat-knowledge-topic"
-SERVER_VERSION = "0.1.0"
+SERVER_VERSION = __version__
 WIRE_RESPONSE_LIMIT = 32_768
 
 # This selection rule is intentionally self-contained at its beginning.  It is

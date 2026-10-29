@@ -16,7 +16,7 @@ SHA-256 against the manifest. Python 3.12 or 3.13 is required.
 Install the wheel in an isolated tool environment, for example:
 
 ```powershell
-uv tool install --python 3.12 .\twincat_knowledge-0.1.0-py3-none-any.whl
+uv tool install --python 3.12 .\twincat_knowledge-0.1.1-py3-none-any.whl
 ```
 
 Dependency installation needs registry access; the inspection itself does not.

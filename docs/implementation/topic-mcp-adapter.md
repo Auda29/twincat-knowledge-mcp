@@ -52,7 +52,7 @@ control boundary.
 
 ## Modern protocol profile
 
-The server identity is `twincat-knowledge-topic` version `0.1.0`. Discovery
+The server identity is `twincat-knowledge-topic` version `0.1.1`. Discovery
 supports only MCP `2026-07-28` and includes the self-contained selection
 instructions in the first 512 characters. Modern calls carry the required
 protocol-version, client-info, and client-capabilities metadata in each request;
