@@ -1,6 +1,6 @@
 """Bounded MCP stdio adapter for the production topic query service.
 
-This module deliberately exposes only the four topic-slice tools.  Corpus loading,
+This module exposes topic and typed-entity tools. Corpus loading,
 activation, and resource lifetime remain the caller's responsibility.
 """
 
@@ -17,6 +17,14 @@ from pydantic import Field, StrictStr, ValidationError
 
 from twincat_knowledge import __version__
 from twincat_knowledge.domain.models import StrictModel
+from twincat_knowledge.services.entity_contracts import (
+    EntityFilters,
+    EntityResponse,
+    FindEntitiesInput,
+    GetLibraryInput,
+    GetSymbolInput,
+    LookupErrorInput,
+)
 from twincat_knowledge.services.query_contracts import (
     BrowseTopicsInput,
     BrowseTopicsResponse,
@@ -272,6 +280,41 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
             _SearchWireInput,
             SearchResponse.model_json_schema(by_alias=True, mode="serialization"),
         ),
+        *[
+            _tool(
+                name,
+                description,
+                model,
+                EntityResponse.model_json_schema(by_alias=True, mode="serialization"),
+            )
+            for name, description, model in (
+                (
+                    "tc_find_symbols",
+                    "Find documented symbols by exact name and filters.",
+                    FindEntitiesInput,
+                ),
+                (
+                    "tc_get_symbol",
+                    "Fetch a documented symbol by opaque entity ID.",
+                    GetSymbolInput,
+                ),
+                (
+                    "tc_find_libraries",
+                    "Find documented libraries by exact name and filters.",
+                    FindEntitiesInput,
+                ),
+                (
+                    "tc_get_library",
+                    "Fetch a documented library by opaque entity ID.",
+                    GetLibraryInput,
+                ),
+                (
+                    "tc_lookup_error",
+                    "Find errors by exact code spelling and optional domain.",
+                    LookupErrorInput,
+                ),
+            )
+        ],
     ]
     server = MCPServer(
         name=SERVER_NAME,
@@ -353,6 +396,58 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
             )
         )
 
+    def public_find_symbols(
+        query: str,
+        filters: EntityFilters | None = None,
+        limit: int = 5,
+        cursor: str | None = None,
+    ) -> EntityResponse:
+        return service.entity_service.find_symbols(
+            FindEntitiesInput(query=query, filters=filters, limit=limit, cursor=cursor)
+        )
+
+    def public_find_libraries(
+        query: str,
+        filters: EntityFilters | None = None,
+        limit: int = 5,
+        cursor: str | None = None,
+    ) -> EntityResponse:
+        return service.entity_service.find_libraries(
+            FindEntitiesInput(query=query, filters=filters, limit=limit, cursor=cursor)
+        )
+
+    def public_get_symbol(symbol_id: str) -> EntityResponse:
+        return service.entity_service.get_symbol(GetSymbolInput(symbol_id=symbol_id))
+
+    def public_get_library(library_id: str) -> EntityResponse:
+        return service.entity_service.get_library(
+            GetLibraryInput(library_id=library_id)
+        )
+
+    def public_lookup_error(
+        code: str,
+        domain: str | None = None,
+        filters: EntityFilters | None = None,
+        limit: int = 5,
+        cursor: str | None = None,
+    ) -> EntityResponse:
+        return service.entity_service.lookup_error(
+            LookupErrorInput(
+                code=code, domain=domain, filters=filters, limit=limit, cursor=cursor
+            )
+        )
+
+    for name, operation in (
+        ("tc_find_symbols", public_find_symbols),
+        ("tc_get_symbol", public_get_symbol),
+        ("tc_find_libraries", public_find_libraries),
+        ("tc_get_library", public_get_library),
+        ("tc_lookup_error", public_lookup_error),
+    ):
+        server.add_tool(
+            operation, name=name, annotations=annotations, structured_output=True
+        )
+
     server.add_tool(
         public_browse,
         name="tc_browse_topics",
@@ -413,6 +508,22 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
         server_info = lowlevel.server_info_stamp
         payload: Any
         try:
+            entity_tools = {
+                "tc_find_symbols": (FindEntitiesInput, "find_symbols"),
+                "tc_get_symbol": (GetSymbolInput, "get_symbol"),
+                "tc_find_libraries": (FindEntitiesInput, "find_libraries"),
+                "tc_get_library": (GetLibraryInput, "get_library"),
+                "tc_lookup_error": (LookupErrorInput, "lookup_error"),
+            }
+            if params.name in entity_tools:
+                model, method = entity_tools[params.name]
+                request = _parse(model, arguments)
+                payload = _invoke_service(
+                    getattr(service.entity_service, method), request
+                )
+                return _result(
+                    ctx.request_id, payload, params.name, server_info, EntityResponse
+                )
             if params.name == "tc_search":
                 wire = _parse(_SearchWireInput, arguments)
                 search_request = SearchInput(
@@ -489,6 +600,7 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
             # code, message, and data are caller-controlled and must not cross the
             # wire boundary.
             response_model = {
+                **{name: EntityResponse for name in entity_tools},
                 "tc_search": SearchResponse,
                 "tc_get_topic": TopicResponse,
                 "tc_browse_topics": BrowseTopicsResponse,
@@ -509,6 +621,7 @@ def create_topic_server(service: TopicQueryService) -> MCPServer:
             # final boundary also protects the wire when a service double or a
             # future implementation raises an unexpected exception.
             response_model = {
+                **{name: EntityResponse for name in entity_tools},
                 "tc_search": SearchResponse,
                 "tc_get_topic": TopicResponse,
                 "tc_browse_topics": BrowseTopicsResponse,
