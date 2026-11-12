@@ -1,5 +1,9 @@
 # Private P1 development candidate
 
+Historical development receipt: publication of the successor `0.1.2` is now
+authorized. See [0.1.2 release notes](../releases/v0.1.2.md). The original private
+candidate and its recorded hashes remain unchanged; it is not relabeled.
+
 `0.1.2.dev20261112` identifies the private development build of the five P1
 typed tools reviewed at `486be3cef2a29e7163d362bd5cb3a89ef01f421a`.
 It is a PEP 440 development version, not a published release. A different

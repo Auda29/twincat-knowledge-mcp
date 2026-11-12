@@ -2,6 +2,12 @@
 
 ## P1 development update, 12 November 2026
 
+Subsequent user authorization permits merging PR #27 and publishing software
+version `0.1.2` as GitHub Release assets after checks and bounded review. This
+supersedes the earlier private-only publication restriction, while real-document
+acceptance remains open. See [release notes](releases/v0.1.2.md). The original
+`0.1.2.dev20261112` candidate is retained with its original hashes.
+
 The current branch adds five typed documentation tools to the four existing
 topic tools, for nine stdio tools in total. Older three-tool and domain-only
 browse passages below are historical. The bounded P1 contract and explicit

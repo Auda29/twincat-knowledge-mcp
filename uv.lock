@@ -861,7 +861,7 @@ wheels = [
 
 [[package]]
 name = "twincat-knowledge"
-version = "0.1.2.dev20261112"
+version = "0.1.2"
 source = { editable = "." }
 dependencies = [
     { name = "defusedxml" },

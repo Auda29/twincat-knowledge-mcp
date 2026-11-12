@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "twincat-knowledge"
-version = "0.1.2.dev20261112"
+version = "0.1.2"
 description = "Data-source-neutral foundation for the TwinCAT Knowledge CLI"
 readme = "README.md"
 requires-python = ">=3.12"

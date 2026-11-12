@@ -6,6 +6,11 @@ A local, read-only knowledge interface for Beckhoff and TwinCAT documentation. I
 
 No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must supply local source material that you are authorized to process and an approved topic package before the server can answer documentation queries.
 
+Version `0.1.2` is prepared for the existing GitHub Release asset channel. See
+the [release notes](docs/releases/v0.1.2.md) for hash-pinned installation,
+compatibility and open real-document acceptance limits. PyPI availability is
+not asserted.
+
 ## What is available
 
 | Component | Current implementation |

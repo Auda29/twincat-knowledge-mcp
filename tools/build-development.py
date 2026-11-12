@@ -51,19 +51,31 @@ def digest(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def artifact(path: Path, output: Path) -> dict[str, object]:
+def artifact(
+    path: Path, output: Path, release_tag: str | None = None
+) -> dict[str, object]:
     data = path.read_bytes()
-    return {
+    result = {
         "path": path.relative_to(output).as_posix(),
-        "absolute_path": str(path),
         "sha256": digest(data),
         "size_bytes": len(data),
     }
+    if release_tag:
+        result["url"] = (
+            "https://github.com/Auda29/twincat-knowledge-mcp/releases/download/"
+            f"{release_tag}/{path.name}"
+        )
+    else:
+        result["absolute_path"] = str(path)
+    return result
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--out-dir", required=True, type=Path)
+    parser.add_argument(
+        "--release", action="store_true", help="build stable release assets"
+    )
     args = parser.parse_args()
     output = args.out_dir.resolve()
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
@@ -72,6 +84,12 @@ def main() -> None:
         raise ValueError("tracked working tree and index must be clean")
     commit = run("git", "rev-parse", "HEAD")
     tree = run("git", "rev-parse", "HEAD^{tree}")
+    if args.release:
+        subprocess.run(
+            ["git", "merge-base", "--is-ancestor", REVIEWED, commit],
+            cwd=ROOT,
+            check=True,
+        )
     delta = run("git", "diff", "--name-only", REVIEWED, commit, "--", "src")
     if set(delta.splitlines()) - {"src/twincat_knowledge/__init__.py"}:
         raise ValueError("functional source differs from reviewed commit")
@@ -280,12 +298,20 @@ print(json.dumps({"version": twincat_knowledge.__version__, "module": str(packag
         source_version = tomllib.loads(
             (source / "pyproject.toml").read_text(encoding="utf-8")
         )["project"]["version"]
-        if meta["Version"] != source_version or not re.search(
-            r"\.dev\d+$", source_version
+        version_pattern = (
+            r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
+            if args.release
+            else r".*\.dev\d+"
+        )
+        if meta["Version"] != source_version or not re.fullmatch(
+            version_pattern, source_version
         ):
             raise ValueError(
-                "wheel version must match the committed development version"
+                "wheel version must match the committed "
+                + ("stable" if args.release else "development")
+                + " version"
             )
+        release_tag = f"v{source_version}" if args.release else None
         if {t["name"] for t in data["tools"]} != EXPECTED_TOOLS or len(
             data["tools"]
         ) != 9:
@@ -303,9 +329,11 @@ print(json.dumps({"version": twincat_knowledge.__version__, "module": str(packag
             exported + "\n" + install_requirement + "\n", encoding="utf-8"
         )
         receipt = {
-            "development_only": True,
+            "development_only": not args.release,
             "real_extraction_acceptance": "open",
-            "identity": "private development artifact; not a shipping release",
+            "identity": "release candidate"
+            if args.release
+            else "private development artifact; not a shipping release",
             "source": {
                 "commit": commit,
                 "tree": tree,
@@ -330,7 +358,7 @@ print(json.dumps({"version": twincat_knowledge.__version__, "module": str(packag
                 ),
             },
             "wheel": {
-                **artifact(wheel, output),
+                **artifact(wheel, output, release_tag),
                 "name": meta["Name"],
                 "version": meta["Version"],
                 "install_requirement": install_requirement,
@@ -338,18 +366,69 @@ print(json.dumps({"version": twincat_knowledge.__version__, "module": str(packag
                 "provenance_sha256": digest(provenance_bytes),
                 "record_path": records[0],
             },
-            "sdist": artifact(sdists[0], output),
-            "runtime_requirements": artifact(requirements, output),
-            "candidate_requirements": artifact(candidate_requirements, output),
+            "sdist": artifact(sdists[0], output, release_tag),
+            "runtime_requirements": artifact(requirements, output, release_tag),
+            "candidate_requirements": artifact(
+                candidate_requirements, output, release_tag
+            ),
             "tool_schema": {
-                **artifact(tools_path, output),
+                **artifact(tools_path, output, release_tag),
                 "names": sorted(EXPECTED_TOOLS),
             },
         }
-        (output / "development-receipt.json").write_text(
+        if args.release:
+            lock = output / "uv.lock"
+            build_requirements = output / "build-requirements.txt"
+            lock.write_bytes((source / "uv.lock").read_bytes())
+            build_requirements.write_bytes(
+                (source / "tools/build-requirements.txt").read_bytes()
+            )
+            receipt["release_version"] = source_version
+            receipt["release_tag"] = release_tag
+            receipt["uv_lock"] = artifact(lock, output, release_tag)
+            receipt["build_requirements"] = artifact(
+                build_requirements, output, release_tag
+            )
+            asset_names = [
+                wheel.name,
+                sdists[0].name,
+                requirements.name,
+                candidate_requirements.name,
+                tools_path.name,
+                lock.name,
+                build_requirements.name,
+                "release-receipt.json",
+                "SHA256SUMS.txt",
+            ]
+            receipt["asset_urls"] = {
+                name: f"https://github.com/Auda29/twincat-knowledge-mcp/releases/download/{release_tag}/{name}"
+                for name in sorted(asset_names)
+            }
+        receipt_path = output / (
+            "release-receipt.json" if args.release else "development-receipt.json"
+        )
+        receipt_path.write_text(
             json.dumps(receipt, indent=2, sort_keys=True) + "\n", encoding="utf-8"
         )
-    print(f"Development receipt written to {output}")
+        if args.release:
+            assets = [
+                wheel,
+                sdists[0],
+                requirements,
+                candidate_requirements,
+                tools_path,
+                lock,
+                build_requirements,
+                receipt_path,
+            ]
+            (output / "SHA256SUMS.txt").write_text(
+                "".join(
+                    f"{digest(path.read_bytes())}  {path.name}\n"
+                    for path in sorted(assets)
+                ),
+                encoding="utf-8",
+            )
+    print(f"{'Release' if args.release else 'Development'} receipt written to {output}")
 
 
 if __name__ == "__main__":

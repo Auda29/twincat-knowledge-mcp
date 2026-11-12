@@ -88,6 +88,8 @@ This change does not establish installed library versions, live editor contents,
 dirty state, or compiled PLC state. Engineering observations require their own
 session/context/source provenance; diagnostics belong to their build UUID.
 
-No release or published wheel is authorized by this slice. Assistant integration
-must review the new commit and issue a new hash receipt for changed release
-inputs. An old `provenance.py` overlay mismatch must not be bypassed.
+The initial development slice did not authorize publication. Subsequent user
+authorization permits the ordinary `0.1.2` software release; see its release
+notes. Assistant integration must review the released commit and issue a new
+hash receipt for changed release inputs. An old `provenance.py` overlay mismatch
+must not be bypassed. Real-document extraction acceptance remains separate.
