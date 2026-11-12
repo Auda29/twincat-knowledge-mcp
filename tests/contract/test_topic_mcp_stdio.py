@@ -41,6 +41,11 @@ TOOL_NAMES = [
     "tc_get_corpus_status",
     "tc_get_topic",
     "tc_search",
+    "tc_find_symbols",
+    "tc_get_symbol",
+    "tc_find_libraries",
+    "tc_get_library",
+    "tc_lookup_error",
 ]
 
 
@@ -133,12 +138,12 @@ def _run_wire(
         return [session.send(request) for request in requests]
 
 
-def test_topic_server_factory_exposes_exactly_four_tools() -> None:
+def test_topic_server_factory_exposes_exactly_nine_tools() -> None:
     server = create_topic_server(TopicQueryService(None))
     tools = server._topic_tools  # type: ignore[attr-defined]
 
     assert [tool.name for tool in tools] == TOOL_NAMES
-    assert len(tools) == 4
+    assert len(tools) == 9
     assert all(tool.annotations is not None for tool in tools)
     for tool in tools:
         assert set(tool.annotations.model_dump(by_alias=True, exclude_none=True)) == {
@@ -214,6 +219,11 @@ def test_modern_discovery_list_and_direct_calls_are_real_wire_messages() -> None
             "tc_get_topic": {"topic_id": "x"},
             "tc_get_corpus_status": {},
             "tc_browse_topics": {},
+            "tc_find_symbols": {"query": "x"},
+            "tc_get_symbol": {"symbol_id": "x"},
+            "tc_find_libraries": {"query": "x"},
+            "tc_get_library": {"library_id": "x"},
+            "tc_lookup_error": {"code": "0x10"},
         }[tool["name"]]
         validate(instance=valid_args, schema=tool["inputSchema"])
 

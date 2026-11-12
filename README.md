@@ -2,7 +2,7 @@
 
 A local, read-only knowledge interface for Beckhoff and TwinCAT documentation. It gives agents access to a validated topic package without requiring a TwinCAT installation, a PLC connection, or access to an engineering project.
 
-**Status: working development implementation, not a production release.** The repository contains an installable Python CLI, a four-tool MCP server over stdio, an operator `ingest` command for locally installed InfoSys archives, and the topic ingestion, package validation, snapshot, search, and hierarchy components. The larger tool catalog in the implementation plan is not yet available.
+**Status: development implementation, not a production release.** The repository contains an installable Python CLI, a nine-tool MCP server over stdio, an operator `ingest` command for locally installed InfoSys archives, and topic ingestion, package validation, snapshot, search, and hierarchy components. Five typed documentation tools use bounded extraction from validated topics. Their real-document extraction acceptance remains open; synthetic tests do not establish coverage of an operator corpus. The full 15-tool catalog in the implementation plan is not available.
 
 No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must supply local source material that you are authorized to process and an approved topic package before the server can answer documentation queries.
 
@@ -17,7 +17,7 @@ No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must 
 | Snapshot management | Operator CLI commands to activate a package, inspect the selected snapshot state, and roll back to the stored previous snapshot. |
 | Query service | Topic retrieval, full-text search, bounded responses, and cursor-based pagination. |
 | Hierarchy | Extraction, graph validation, and domain-level topic browsing, exposed as the `tc_browse_topics` MCP tool. |
-| MCP server | A fixed catalog of four read-only tools over stdio. |
+| MCP server | A fixed catalog of nine read-only tools over stdio. |
 
 ### Available MCP tools
 
@@ -27,6 +27,13 @@ No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must 
 | `tc_get_corpus_status` | Report the selected corpus's availability and coverage within the implemented topic scope. |
 | `tc_get_topic` | Retrieve a topic or selected sections by identifier. |
 | `tc_search` | Search the loaded topic package. Unsupported knowledge categories are not implemented. |
+| `tc_find_symbols` | Find explicitly documented symbol declarations with namespace and version filters. |
+| `tc_get_symbol` | Retrieve a documented symbol by its evidence-bound identifier. |
+| `tc_find_libraries` | Find explicitly documented libraries; documented versions are not installed versions. |
+| `tc_get_library` | Retrieve a documented library by identifier. |
+| `tc_lookup_error` | Look up an exact documented error code, optionally restricted to its domain. |
+
+See the [typed documentation contract](docs/implementation/typed-entities.md) for extraction rules, missing-data behavior, and rollout limits. Knowledge results cannot establish live editor contents, dirty state, installed libraries, or compiled PLC state.
 
 The adapter uses the pinned MCP Python SDK `mcp==2.2.0` and the MCP `2026-07-28` protocol profile. Client compatibility must be checked against that profile; compatibility with every MCP host is not claimed. See the [adapter contract](docs/implementation/topic-mcp-adapter.md) for schemas, protocol metadata, response limits, and SDK coupling.
 

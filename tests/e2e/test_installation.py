@@ -284,6 +284,11 @@ def test_wheel_installs_without_source_checkout(
         "tc_get_corpus_status",
         "tc_get_topic",
         "tc_search",
+        "tc_find_symbols",
+        "tc_get_symbol",
+        "tc_find_libraries",
+        "tc_get_library",
+        "tc_lookup_error",
     ]
     assert (
         json.loads(direct_call.stdout)["result"]["structuredContent"]["status"]

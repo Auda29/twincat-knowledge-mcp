@@ -322,6 +322,11 @@ def test_installed_style_serve_stdio_handles_modern_wire_without_initialize() ->
         "tc_get_corpus_status",
         "tc_get_topic",
         "tc_search",
+        "tc_find_symbols",
+        "tc_get_symbol",
+        "tc_find_libraries",
+        "tc_get_library",
+        "tc_lookup_error",
     ]
     assert responses[2]["result"]["structuredContent"]["status"] == "not_available"
 

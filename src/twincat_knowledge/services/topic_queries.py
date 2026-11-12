@@ -6,7 +6,7 @@ import hashlib
 import json
 import secrets
 from collections.abc import Iterable
-from typing import Literal, TypeVar, cast
+from typing import TYPE_CHECKING, Literal, TypeVar, cast
 
 from pydantic import BaseModel
 
@@ -50,6 +50,9 @@ from .query_contracts import (
     TopicSectionData,
 )
 from .query_cursor import CursorError, QueryCursor
+
+if TYPE_CHECKING:
+    from .entity_queries import EntityQueryService
 
 MAX_DOMAIN_RESPONSE_BYTES = 12 * 1024
 MAX_SNIPPET_CHARS = 512
@@ -133,6 +136,16 @@ class TopicQueryService:
         self._cursor = QueryCursor(secrets.token_bytes(32))
         self._browse_graph: TopicHierarchyGraph | None = None
         self._browse_generation: str | None = None
+        self._entity_service: EntityQueryService | None = None
+
+    @property
+    def entity_service(self) -> EntityQueryService:
+        """Reuse a lazy typed view of the same caller-owned package generation."""
+        from .entity_queries import EntityQueryService
+
+        if self._entity_service is None:
+            self._entity_service = EntityQueryService(self._loaded)
+        return self._entity_service
 
     def _generation(self) -> str:
         assert self._loaded is not None

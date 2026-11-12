@@ -1,5 +1,18 @@
 # Projektstatus — integrierter Entwicklungsstand einschließlich Domain-Browse
 
+## P1 development update, 12 November 2026
+
+The current branch adds five typed documentation tools to the four existing
+topic tools, for nine stdio tools in total. Older three-tool and domain-only
+browse passages below are historical. The bounded P1 contract and explicit
+limitations are documented in [typed entities](implementation/typed-entities.md).
+The full 15-tool PLAN remains incomplete. No release or live extraction
+acceptance is claimed; real-document coverage still needs an approved sample.
+
+Typed extraction uses existing validated topic packages without migration.
+Tests use synthetic sources only. Library documentation does not establish
+installed versions, editor contents, dirty state, or compiled PLC state.
+
 ## Aktueller Auftrag vom 14. September 2026
 
 Die vorhandenen PRs #3–#18 sind abhängigkeitsgeordnet nach `main` integriert;
