@@ -84,7 +84,18 @@ def main() -> None:
         temp = Path(tmp)
         archive = temp / "head.tar"
         subprocess.run(
-            ["git", "archive", "--format=tar", "-o", str(archive), commit],
+            [
+                "git",
+                "-c",
+                "core.autocrlf=false",
+                "-c",
+                "core.eol=lf",
+                "archive",
+                "--format=tar",
+                "-o",
+                str(archive),
+                commit,
+            ],
             cwd=ROOT,
             check=True,
         )
@@ -106,6 +117,11 @@ def main() -> None:
         aggregate = hashlib.sha256()
         for name in files:
             data = (source / name).read_bytes()
+            committed = subprocess.check_output(
+                ["git", "cat-file", "blob", f"{commit}:{name}"], cwd=ROOT
+            )
+            if data != committed:
+                raise ValueError(f"archive input differs from committed bytes: {name}")
             encoded = name.encode("utf-8")
             mode = modes[name].encode("ascii")
             aggregate.update(mode)
@@ -295,6 +311,7 @@ print(json.dumps({"version": twincat_knowledge.__version__, "module": str(packag
                 "tree": tree,
                 "reviewed_functional_commit": REVIEWED,
                 "source_date_epoch": int(epoch),
+                "archive_git_config": {"core.autocrlf": False, "core.eol": "lf"},
                 "tracked_inputs": inputs,
                 "aggregate_sha256": aggregate.hexdigest(),
                 "aggregate_encoding": (
