@@ -1,27 +1,28 @@
 # Python reader CLI inspection
 
-This is a reader integration checkpoint, **not** the completed corpus importer.
+Published `0.1.2` includes both the metadata-only reader command below and the
+separate [ingest command](infosys-ingest-cli.md). The verification section at the
+end records an earlier reader checkpoint; its open gates are historical and do
+not supersede [current status](../STATUS.md).
+
 `inspect-infosys` runs the Python reader from the installed package and prints
 metadata-only JSON. It never writes an index, opens links, uploads documentation,
 or changes the installed InfoSys source. No administrator rights are needed.
 
-## Install a CI build
+## Install published software
 
-The private Foundation CI run provides `software-<os>-py<version>-<sha>` artifacts
-containing a wheel, source archive and `SHA256SUMS.txt`. These are seven-day CI
-builds, not releases. Review the run's exact commit and green test status. Download
-while signed in, unpack outside the InfoSys installation and verify the wheel's
-SHA-256 against the manifest. Python 3.12 or 3.13 is required.
+Follow [published 0.1.2 setup](../setup.md) to download and verify the GitHub
+Release wheel, hash-pinned runtime requirements, schemas and source receipt.
+Install into a separate environment outside the InfoSys installation. Python
+3.12 or newer with SQLite FTS5 is required; CI covers 3.12.10 and 3.13.12.
 
-Install the wheel in an isolated tool environment, for example:
+The ordinary version is `0.1.2`, not the dated private development candidate.
+Optional seven-day CI artifacts are distinct from release assets and require
+an explicit upload-enabled workflow run; normal CI does not provide them.
 
-```powershell
-uv tool install --python 3.12 .\twincat_knowledge-0.1.1-py3-none-any.whl
-```
-
-Dependency installation needs registry access; the inspection itself does not.
-Do not overwrite an existing tool installation blindly; test builds can instead
-be installed into a dedicated Python virtual environment.
+Dependency installation needs a registry or prepared wheelhouse; inspection
+itself uses only the explicitly selected local source. Invoke the installed
+console path, or activate that isolated environment for the command below.
 
 ## Test the observed installation
 
@@ -44,7 +45,12 @@ success is returned after a reader failure. Generic errors deliberately suppress
 source details. Limits and supported XHTML are documented in
 [python-infosys-reader.md](python-infosys-reader.md).
 
-## Verification and open gates
+## Historical reader-checkpoint verification and open gates
+
+The following evidence and then-open scope are retained from the initial reader
+integration. Current topic ingestion, indexing and MCP availability are listed
+in the documentation index and status; this evidence alone accepts neither the
+published typed extraction nor a new real-document sample.
 
 - Parent observed the command missing (RED), implemented the minimal command,
   then repeated for exact-title filtering (RED -> GREEN).

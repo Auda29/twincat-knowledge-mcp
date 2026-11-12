@@ -2,14 +2,16 @@
 
 A local, read-only knowledge interface for Beckhoff and TwinCAT documentation. It gives agents access to a validated topic package without requiring a TwinCAT installation, a PLC connection, or access to an engineering project.
 
-**Status: development implementation, not a production release.** The repository contains an installable Python CLI, a nine-tool MCP server over stdio, an operator `ingest` command for locally installed InfoSys archives, and topic ingestion, package validation, snapshot, search, and hierarchy components. Five typed documentation tools use bounded extraction from validated topics. Their real-document extraction acceptance remains open; synthetic tests do not establish coverage of an operator corpus. The full 15-tool catalog in the implementation plan is not available.
+**Published software: [0.1.2](https://github.com/Auda29/twincat-knowledge-mcp/releases/tag/v0.1.2).** Tag `v0.1.2` identifies source commit `84c437aea8e27da930a246e7bb3ae310e8e5d31d`. The release contains an installable Python CLI, nine read-only MCP tools over stdio, and the local InfoSys topic-ingestion and snapshot pipeline. Five tools extract typed documentation records from supported source structures. Real-document extraction acceptance remains open; synthetic tests do not establish coverage of an operator corpus. The full 15-tool plan remains incomplete.
 
 No Beckhoff documentation or ready-to-use knowledge corpus is bundled. You must supply local source material that you are authorized to process and an approved topic package before the server can answer documentation queries.
 
-Version `0.1.2` is prepared for the existing GitHub Release asset channel. See
-the [release notes](docs/releases/v0.1.2.md) for hash-pinned installation,
-compatibility and open real-document acceptance limits. PyPI availability is
-not asserted.
+Use the versioned GitHub Release assets with their exact SHA-256 pins. See
+[released-software setup](docs/setup.md) for wheel/sdist, runtime requirements,
+schema and receipt verification, and the [release notes](docs/releases/v0.1.2.md)
+for the published scope. PyPI availability and GitHub's repository-level release
+immutability setting are not asserted. The integrity guarantee comes from
+checking the pinned bytes, including after a download URL is reused.
 
 ## What is available
 
@@ -40,9 +42,25 @@ not asserted.
 
 See the [typed documentation contract](docs/implementation/typed-entities.md) for extraction rules, missing-data behavior, and rollout limits. Knowledge results cannot establish live editor contents, dirty state, installed libraries, or compiled PLC state.
 
+Results retain source/snapshot citations, missing fields and ambiguity across
+libraries, namespaces, documented versions and error domains. Unlabeled or
+title-mismatched declarations, arbitrary prose, unknown metadata formats and
+unsupported error-code syntax do not become guessed entities. A typed index is
+built on the first typed query for a validated generation. That defers work; it
+does not establish that the large-corpus cold-start or first-query latency goal
+has been met. Those measurements remain part of real-corpus acceptance.
+
 The adapter uses the pinned MCP Python SDK `mcp==2.2.0` and the MCP `2026-07-28` protocol profile. Client compatibility must be checked against that profile; compatibility with every MCP host is not claimed. See the [adapter contract](docs/implementation/topic-mcp-adapter.md) for schemas, protocol metadata, response limits, and SDK coupling.
 
-## Install from source
+## Install the published release
+
+Follow [released-software setup](docs/setup.md) to download `v0.1.2`, verify the
+wheel, requirements, schemas and receipt, and install into a separate environment
+with `--require-hashes`. No source checkout or TwinCAT installation is required
+for the documentation server. You still supply authorized documentation before
+queries can return knowledge.
+
+## Develop from source
 
 Requirements:
 
@@ -61,7 +79,7 @@ uv run --frozen twincat-knowledge --version
 uv run --frozen twincat-knowledge --help
 ```
 
-The distribution and console command are named `twincat-knowledge`; the Python import package is `twincat_knowledge`. These instructions install from the checkout and do not assume a published PyPI release.
+The distribution and console command are named `twincat-knowledge`; the Python import package is `twincat_knowledge`. These instructions install from the checkout and do not assume a published PyPI release. The operator walkthrough below uses checkout commands; for an installed release, replace `uv run --frozen twincat-knowledge` with the absolute installed console entry point described in [setup](docs/setup.md).
 
 ## Start the MCP server
 
@@ -154,7 +172,8 @@ Normal push/PR CI builds and verifies the software without uploading artifacts. 
 
 ## Not implemented
 
-- The full planned tool catalog, including symbol, library, device, error, example, and relationship tools.
+- The six remaining planned tools: `tc_compare_symbols`, `tc_find_devices`, `tc_get_device`, `tc_search_examples`, `tc_get_example`, and `tc_get_related`.
+- Complete real-document extraction coverage or a measured large-corpus cold-start guarantee.
 - Streamable HTTP, remote authentication, and host-specific deployment support.
 - Semantic search or a ready-to-use licensed corpus.
 - A universal response-size guarantee for every SDK-generated protocol error or arbitrary request metadata.
@@ -167,13 +186,18 @@ MCP tools are read-only. They do not control PLCs, open ADS connections, modify 
 
 Only process sources you are entitled to use. Beckhoff documentation is not redistributed with this repository. Source acquisition, indexing, and use rights must be resolved before ingestion. Package checksums do not replace those decisions.
 
-This is an independent project, not an official Beckhoff product. A software license and any public release remain undecided; do not assume an open-source license grant merely because you can access the repository.
+This is an independent project, not an official Beckhoff product. Software publication does not itself establish an open-source license grant; use the repository's applicable licensing terms and do not infer rights to vendor documentation from repository access or a release download.
 
 ## Documentation
 
-Some project-planning and historical status documents are still in German. Component documentation records earlier review stages; use the current status and merge policy for the integration outcome and current gates.
+Start with the [documentation index](docs/README.md), [published setup](docs/setup.md)
+and current status. Some planning and dated evidence remain in German. Historical
+three-/four-tool checkpoints and the private development candidate describe
+their recorded stages, not the current nine-tool release.
 
 - [Current status and verification evidence](docs/STATUS.md)
+- [Published 0.1.2 setup and artifact pins](docs/setup.md)
+- [Typed documentation contracts and extraction limits](docs/implementation/typed-entities.md)
 - [Merge policy](docs/MERGE_POLICY.md)
 - [Implementation plan and planned tool contracts](docs/PLAN.md)
 - [Primary sources](docs/SOURCES.md)

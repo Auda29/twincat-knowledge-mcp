@@ -1,6 +1,16 @@
 # Projektstatus — integrierter Entwicklungsstand einschließlich Domain-Browse
 
-## P1 development update, 12 November 2026
+## Current status: published 0.1.2
+
+Knowledge `0.1.2` is published as [GitHub Release v0.1.2](https://github.com/Auda29/twincat-knowledge-mcp/releases/tag/v0.1.2), at source commit `84c437aea8e27da930a246e7bb3ae310e8e5d31d`. The [published setup guide](setup.md) lists exact asset URLs and SHA-256 pins; repository-level release immutability is not asserted. See the [release notes](releases/v0.1.2.md).
+
+The stdio server exposes nine read-only tools: four topic tools and five typed tools (`tc_find_symbols`, `tc_get_symbol`, `tc_find_libraries`, `tc_get_library`, and `tc_lookup_error`). The planned 15-tool catalog remains incomplete. See [typed entities](implementation/typed-entities.md) and [stdio serving](implementation/stdio-serving-cli.md); the [development candidate](implementation/development-candidate.md) is historical.
+
+Real-corpus extraction acceptance remains open. Unsupported grammar and absent or conflicting metadata remain unknown, not verified facts. The typed index is built lazily on the first typed query; deferring that work does not establish that the cold-start goal is met. Documentation and metadata do not establish live editor, compiled PLC, or installed-library state.
+
+The dated sections below preserve historical evidence and instructions as of their stated dates. They are not current release status or instructions.
+
+## Historical P1 development update, 12 November 2026
 
 Subsequent user authorization permits merging PR #27 and publishing software
 version `0.1.2` as GitHub Release assets after checks and bounded review. This
@@ -19,7 +29,7 @@ Typed extraction uses existing validated topic packages without migration.
 Tests use synthetic sources only. Library documentation does not establish
 installed versions, editor contents, dirty state, or compiled PLC state.
 
-## Aktueller Auftrag vom 14. September 2026
+## Historischer Auftrag vom 14. September 2026
 
 Die vorhandenen PRs #3–#18 sind abhängigkeitsgeordnet nach `main` integriert;
 der separate Konsolidierungsrest wurde als PR #19 übernommen. Die 18 danach

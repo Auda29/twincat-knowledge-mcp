@@ -1,5 +1,13 @@
 # Umsetzungsziel: TwinCAT Knowledge MCP mit Agent-Swarm
 
+## Current status: published 0.1.2
+
+[Knowledge 0.1.2](https://github.com/Auda29/twincat-knowledge-mcp/releases/tag/v0.1.2) is published at source commit `84c437aea8e27da930a246e7bb3ae310e8e5d31d`. The release provides nine read-only stdio tools: four topic tools and five typed symbol, library, and error lookup tools. The 15-tool goal is not complete; see [STATUS](STATUS.md), the [release notes](releases/v0.1.2.md), and [typed entities](implementation/typed-entities.md).
+
+Real-corpus extraction acceptance remains open. Unsupported grammar and missing or conflicting fields remain unknown. The typed index is built on the first typed query; this deferral does not prove the cold-start goal. Documentation and metadata do not establish live or installed state.
+
+The goal, dated instructions, scope restrictions, and activation example below record a historical task and do not authorize a new task or describe current release status.
+
 > **Aktuelle Merge-Regel (14.09.2026):** [MERGE_POLICY.md](MERGE_POLICY.md)
 > ersetzt die frühere Upload-Pflicht für Entwicklungs-PRs. Code-, Build-,
 > Installationsprüfungen und unabhängige Review bleiben verpflichtend.

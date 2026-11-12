@@ -1,13 +1,17 @@
 # Private P1 development candidate
 
-Historical development receipt: publication of the successor `0.1.2` is now
-authorized. See [0.1.2 release notes](../releases/v0.1.2.md). The original private
-candidate and its recorded hashes remain unchanged; it is not relabeled.
+Historical development record, 12 November 2026. The successor `0.1.2` is now
+[published](https://github.com/Auda29/twincat-knowledge-mcp/releases/tag/v0.1.2)
+at source commit `84c437aea8e27da930a246e7bb3ae310e8e5d31d`; use
+[published setup](../setup.md) for current installation and artifact pins.
+The original private candidate and its recorded hashes remain unchanged; it is
+not relabeled. References below to fixed prior artifacts do not assert a GitHub
+repository-level immutability setting.
 
 `0.1.2.dev20261112` identifies the private development build of the five P1
 typed tools reviewed at `486be3cef2a29e7163d362bd5cb3a89ef01f421a`.
 It is a PEP 440 development version, not a published release. A different
-version prevents changed code from being mistaken for the immutable 0.1.1
+version prevents changed code from being mistaken for the previously recorded 0.1.1
 release wheel. The functional tool implementation and nine-tool schemas remain
 the reviewed implementation; the package version and MCP server version advance
 together.
@@ -18,13 +22,16 @@ Real-document extraction acceptance remains open. No vendor documentation or
 operator corpus is bundled. The source archive contains ordinary repository
 software sources, tests, and README material.
 
-## Build and receipt
+## Historical build and receipt
 
-Run the build helper from the locked development environment after committing
-the packaging delta. Use a new output directory inside ignored `dist/`:
+The following invocation records the canonical private rebuild at source
+checkpoint `d5b774941600f746b092b0672216471f35dca73b`. It is not a
+current setup command: the default development-version guard rejects the
+ordinary `0.1.2` version on the release/current branch. The canonical rebuild used
+a new directory inside ignored `dist/`:
 
 ```powershell
-uv run --no-sync python tools/build-development.py --out-dir dist/p1-development
+uv run --no-sync python tools/build-development.py --out-dir dist/p1-development-canonical
 ```
 
 The helper requires clean tracked inputs and builds a committed Git archive.
