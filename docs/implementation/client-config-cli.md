@@ -1,5 +1,9 @@
 # Operator CLI: host client configuration printer
 
+For the current published `0.1.2` installation, follow [setup](../setup.md).
+The installed server discovers nine read-only tools. Printing a host block
+does not import documentation, accept real-corpus coverage or verify a host.
+
 This implements the `config print-client` operator command from PLAN section
 10.2 for the `claude` and `codex` clients. It prints one MCP server block to
 stdout; it never reads, writes, or modifies any host or agent configuration

@@ -1,5 +1,13 @@
 # TwinCAT Knowledge MCP — Implementation Plan
 
+## Current status: published 0.1.2
+
+[Knowledge 0.1.2](https://github.com/Auda29/twincat-knowledge-mcp/releases/tag/v0.1.2) is published at source commit `84c437aea8e27da930a246e7bb3ae310e8e5d31d`. Its nine read-only stdio tools comprise four topic tools and five typed symbol, library, and error lookup tools; the full 15-tool plan remains incomplete. See [STATUS](STATUS.md), [release notes](releases/v0.1.2.md), and [typed entities](implementation/typed-entities.md).
+
+Real-corpus extraction acceptance remains open. Unsupported grammar and missing or conflicting fields remain unknown. Lazy typed indexing defers work to the first typed query and does not prove the cold-start goal. Documentation and metadata do not establish live or installed state.
+
+The plan, dated status annotations, goals, and instructions below are historical planning and evidence; they are not current release claims or authorization to start work.
+
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task. Falls dieser Skill nicht verfügbar ist: inkrementell mit TDD und unabhängiger Review arbeiten; keine vorhandene Implementierung oder Testergebnisse voraussetzen.
 
 **Goal:** Einen vollständig installierbaren, projektunabhängigen Read-only-MCP-Server für globale Beckhoff-/TwinCAT-Informationen mit genau 15 fachlichen Agent-Tools und nativer Unterstützung für MCP `2026-07-28` liefern.

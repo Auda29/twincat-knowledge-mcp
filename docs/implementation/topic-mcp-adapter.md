@@ -1,12 +1,22 @@
 # Bounded topic MCP adapter
 
-This implementation is the first read-only MCP slice, not the planned 15-tool
-product. It exposes exactly these four stable tool names, in this order:
+Published software `0.1.2` exposes nine read-only tools, in this order. The full
+15-tool plan remains incomplete:
 
 1. `tc_browse_topics`
 2. `tc_get_corpus_status`
 3. `tc_get_topic`
 4. `tc_search`
+5. `tc_find_symbols`
+6. `tc_get_symbol`
+7. `tc_find_libraries`
+8. `tc_get_library`
+9. `tc_lookup_error`
+
+The original four topic tools retain their contracts. The five typed tools use
+the [typed entity contracts](typed-entities.md), including explicit missing
+fields and ambiguity; [published setup](../setup.md) pins the wheel and actual
+nine-tool schemas to tag `v0.1.2`.
 
 The adapter uses the installed MCP Python SDK (`mcp==2.2.0`) for stdio framing,
 JSON-RPC dispatch, request metadata validation, result serialization, and
@@ -45,14 +55,14 @@ so even a service-raised adapter-private protocol error is translated before
 protocol dispatch sees it. Cancellation (`BaseException`) still propagates.
 This is error-data hygiene, not a sandbox against arbitrary in-process code.
 
-All four tools advertise the four read-only annotations:
+All nine tools advertise the four read-only annotations:
 `readOnlyHint=true`, `destructiveHint=false`, `idempotentHint=true`, and
 `openWorldHint=false`. These annotations are descriptive and are not the access
 control boundary.
 
 ## Modern protocol profile
 
-The server identity is `twincat-knowledge-topic` version `0.1.1`. Discovery
+The server identity is `twincat-knowledge-topic` version `0.1.2`. Discovery
 supports only MCP `2026-07-28` and includes the self-contained selection
 instructions in the first 512 characters. Modern calls carry the required
 protocol-version, client-info, and client-capabilities metadata in each request;
@@ -93,7 +103,7 @@ exercise multiple cursor calls over real build-and-load fixture packages.
 The test fixture is local synthetic data used only to exercise the production
 package builder, loader, service, and adapter. It is not Beckhoff content and
 proves neither InfoSys coverage nor product readiness. A missing validated corpus
-remains `not_available` while discovery and the fixed four-tool catalog continue
+remains `not_available` while discovery and the fixed nine-tool catalog continue
 to work.
 
 ## SDK coupling and upgrade gate
@@ -123,8 +133,9 @@ metadata in the same way.
 
 ## Acceptance status
 
-This document describes the implemented four-tool slice only. The mandatory
-acceptance criteria in `docs/PLAN.md` remain **OPEN**: in particular, this slice
-is not the planned 15-tool product and these adapter tests do not establish real
-InfoSys coverage, Streamable HTTP, host compatibility, or full product acceptance.
-Documentation of a limitation does not waive a PLAN gate.
+This document describes the published nine-tool stdio adapter. The mandatory
+broader acceptance criteria in `docs/PLAN.md` remain **OPEN**: these adapter
+tests do not establish real typed InfoSys coverage, Streamable HTTP, host
+compatibility, or the complete 15-tool product. Publication and synthetic
+verification do not waive those gates. The lazy typed index also does not prove
+a large-corpus cold-start or first-query latency target.

@@ -1,7 +1,7 @@
 # Typed documentation tools, P1
 
-This development slice adds five read-only tools to the four existing topic
-tools. It does not implement the full catalog in PLAN. Real-document extraction
+Published [software 0.1.2](../setup.md) includes five typed read-only tools in
+addition to the four existing topic tools. It does not implement the full catalog in PLAN. Real-document extraction
 acceptance is open. Tests use synthetic documentation and do not prove coverage
 of the installed InfoSys corpus.
 
@@ -58,6 +58,10 @@ verification, snapshot selection, and the four original topic tools retain their
 existing behavior. No source material is fetched or redistributed. Import still
 requires the operator's authorized local documents and rights reference.
 
+Deferring this index does not establish a large-corpus cold-start improvement
+or a first-query latency or memory target. Those require measurement on an
+explicitly approved real-document scope, alongside extraction-quality review.
+
 The extractor accepts only narrowly recognized source structures. Unsupported
 formats, prose mentions, and missing metadata do not become verified entities.
 In particular, topic routing directories do not prove a library name, version,
@@ -88,8 +92,10 @@ This change does not establish installed library versions, live editor contents,
 dirty state, or compiled PLC state. Engineering observations require their own
 session/context/source provenance; diagnostics belong to their build UUID.
 
-The initial development slice did not authorize publication. Subsequent user
-authorization permits the ordinary `0.1.2` software release; see its release
-notes. Assistant integration must review the released commit and issue a new
-hash receipt for changed release inputs. An old `provenance.py` overlay mismatch
-must not be bypassed. Real-document extraction acceptance remains separate.
+Ordinary software `0.1.2` is published under tag `v0.1.2`, source commit
+`84c437aea8e27da930a246e7bb3ae310e8e5d31d`. The [setup guide](../setup.md)
+links its hash-pinned wheel, sdist, requirements, schema catalog and receipt.
+Integration must review the released commit and retain a new artifact/overlay
+receipt for changed inputs; an old `provenance.py` mismatch must not be bypassed.
+The [private development candidate](development-candidate.md) is historical.
+Real-document extraction acceptance remains separate and open.

@@ -1,7 +1,7 @@
 # stdio serving CLI
 
 `twincat-knowledge serve --transport stdio` is the operator entry point for the
-read-only topic MCP server. `stdio` is the only transport accepted and is the
+read-only nine-tool MCP server in published software `0.1.2`. `stdio` is the only transport accepted and is the
 default, so `serve` is equivalent to `serve --transport stdio`.
 
 ## Configuration and first start
@@ -18,7 +18,7 @@ an instruction to ignore a path that was supplied. Empty explicit serve path
 values are invalid and are checked before path normalization.
 
 With no selected state or cache path, the server starts with
-`TopicQueryService(None)`. Discovery and the three topic tools remain available,
+`TopicQueryService(None)`. Discovery lists all nine tools,
 while knowledge calls report `not_available`. A valid config containing no
 snapshot paths has the same behavior. The command never creates configuration,
 state, cache, locks, package files, or downloads.
@@ -34,6 +34,11 @@ verified and loaded once before the stdio loop; the loaded package stays pinned
 for that process and is closed on EOF, runtime failure, or interruption.
 Activation and reload are operator operations performed by a later process.
 
+Typed extraction is deferred until the first typed query and cached within that
+validated generation. Startup still verifies and loads the selected topic
+package. This deferral is not evidence that large-corpus cold-start, first-query
+latency or memory targets have been met. See [published setup and acceptance](../setup.md).
+
 ## Protocol behavior
 
 The MCP SDK owns UTF-8 JSON-RPC framing. Standard output contains only JSON-RPC
@@ -42,11 +47,22 @@ startup failed`. Help and argparse usage are ordinary CLI output before the
 active protocol starts. No package paths, source paths, configuration values,
 or secrets are printed.
 
-The current adapter exposes exactly these three read-only tools:
+The current adapter exposes exactly these nine read-only tools:
 
+- `tc_browse_topics`
 - `tc_get_corpus_status`
 - `tc_get_topic`
 - `tc_search`
+- `tc_find_symbols`
+- `tc_get_symbol`
+- `tc_find_libraries`
+- `tc_get_library`
+- `tc_lookup_error`
+
+The [typed contracts](typed-entities.md) define the five additive tools and their
+supported extraction grammar. Missing typed coverage, version/namespace/domain
+ambiguity and source references are retained. Documented metadata cannot
+establish locally installed libraries or live editor/compiled PLC state.
 
 Modern clients can call `server/discover`, `tools/list`, and `tools/call`
 without an `initialize` handshake.
